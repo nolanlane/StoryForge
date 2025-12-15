@@ -1,0 +1,44 @@
+services:
+  storyforge-backend:
+    image: python:3.11-slim
+    working_dir: /repo
+    ports:
+      - "8000:8000"
+    environment:
+      STORYFORGE_GEMINI_API_KEY: ${STORYFORGE_GEMINI_API_KEY}
+      STORYFORGE_JWT_SECRET: ${STORYFORGE_JWT_SECRET}
+      STORYFORGE_DB_URL: ${STORYFORGE_DB_URL:-sqlite:////data/storyforge.db}
+      STORYFORGE_CORS_ORIGINS: ${STORYFORGE_CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
+      STORYFORGE_DEV_FRONTEND_URL: ${STORYFORGE_DEV_FRONTEND_URL:-http://localhost:5173}
+    volumes:
+      - ./:/repo
+      - ./data:/data
+    command: >
+      bash -lc "pip install --no-cache-dir -r requirements.txt && uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --reload"
+
+  storyforge-frontend:
+    image: node:20-bookworm-slim
+    working_dir: /repo/frontend
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_BACKEND_URL: http://storyforge-backend:8000
+    volumes:
+      - ./:/repo
+    depends_on:
+      - storyforge-backend
+    command: >
+      bash -lc "npm install && ln -sfn /repo/frontend/node_modules /repo/node_modules && npm run dev -- --host 0.0.0.0 --port 5173"
+
+  storyforge:
+    profiles: ["prod"]
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      STORYFORGE_GEMINI_API_KEY: ${STORYFORGE_GEMINI_API_KEY}
+      STORYFORGE_JWT_SECRET: ${STORYFORGE_JWT_SECRET}
+      STORYFORGE_DB_URL: ${STORYFORGE_DB_URL:-sqlite:////data/storyforge.db}
+      STORYFORGE_CORS_ORIGINS: ${STORYFORGE_CORS_ORIGINS:-*}
+    volumes:
+      - ./data:/data
