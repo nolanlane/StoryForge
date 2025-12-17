@@ -9,6 +9,29 @@ logger = logging.getLogger(__name__)
 RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 
 
+def _safe_error_detail(res: httpx.Response) -> str:
+    try:
+        data = res.json()
+    except Exception:
+        return ""
+
+    err = data.get("error") if isinstance(data, dict) else None
+    if not isinstance(err, dict):
+        return ""
+
+    code = err.get("code")
+    status = err.get("status")
+    msg = err.get("message")
+    bits: list[str] = []
+    if code is not None:
+        bits.append(f"code={code}")
+    if status:
+        bits.append(f"status={status}")
+    if msg:
+        bits.append(f"message={str(msg)[:300]}")
+    return " ".join(bits)
+
+
 def _sanitize_generation_config(generation_config: dict | None) -> dict:
     if not generation_config:
         return {}
@@ -92,7 +115,7 @@ def gemini_generate_text(*, system_prompt: str, user_prompt: str, json_mode: boo
         logger.error("[Gemini] API key is not set!")
         raise ValueError("STORYFORGE_GEMINI_API_KEY is not configured")
 
-    timeout = httpx.Timeout(timeout_s) if timeout_s else httpx.Timeout(90.0)
+    timeout = httpx.Timeout(timeout_s) if timeout_s else httpx.Timeout(settings.gemini_text_timeout_s)
     max_retries = 3
     headers = {"x-goog-api-key": settings.gemini_api_key}
     
@@ -104,7 +127,15 @@ def gemini_generate_text(*, system_prompt: str, user_prompt: str, json_mode: boo
                 
                 if res.status_code in RETRYABLE_STATUS_CODES and attempt < max_retries - 1:
                     wait_time = 2 ** attempt  # 1s, 2s, 4s
-                    logger.warning(f"[Gemini] Got {res.status_code}, retrying in {wait_time}s (attempt {attempt + 1}/{max_retries})")
+                    logger.warning(
+                        "[Gemini] Got %s from model=%s, retrying in %ss (attempt %s/%s) %s",
+                        res.status_code,
+                        settings.gemini_text_model,
+                        wait_time,
+                        attempt + 1,
+                        max_retries,
+                        _safe_error_detail(res),
+                    )
                     time.sleep(wait_time)
                     continue
                     
@@ -124,9 +155,53 @@ def gemini_generate_text(*, system_prompt: str, user_prompt: str, json_mode: boo
                     logger.warning("[Gemini] Empty text response.")
                 return text
         except httpx.HTTPStatusError as e:
+            detail = _safe_error_detail(e.response)
+            if e.response.status_code == 404:
+                logger.error(
+                    "[Gemini] Text model not found/unreachable model=%s endpoint=v1beta status=404 %s",
+                    settings.gemini_text_model,
+                    detail,
+                )
+            elif e.response.status_code == 400:
+                logger.error(
+                    "[Gemini] Bad request calling model=%s status=400 %s",
+                    settings.gemini_text_model,
+                    detail,
+                )
+            else:
+                logger.error(
+                    "[Gemini] HTTP error calling model=%s status=%s %s",
+                    settings.gemini_text_model,
+                    e.response.status_code,
+                    detail,
+                )
+
             if e.response.status_code in RETRYABLE_STATUS_CODES and attempt < max_retries - 1:
                 wait_time = 2 ** attempt
-                logger.warning(f"[Gemini] Got {e.response.status_code}, retrying in {wait_time}s (attempt {attempt + 1}/{max_retries})")
+                logger.warning(
+                    "[Gemini] Retrying model=%s in %ss (attempt %s/%s)",
+                    settings.gemini_text_model,
+                    wait_time,
+                    attempt + 1,
+                    max_retries,
+                )
+                time.sleep(wait_time)
+                continue
+            raise
+        except httpx.RequestError as e:
+            logger.error(
+                "[Gemini] Network error calling model=%s (%s)",
+                settings.gemini_text_model,
+                type(e).__name__,
+            )
+            if attempt < max_retries - 1:
+                wait_time = 2 ** attempt
+                logger.warning(
+                    "[Gemini] Retrying after network error in %ss (attempt %s/%s)",
+                    wait_time,
+                    attempt + 1,
+                    max_retries,
+                )
                 time.sleep(wait_time)
                 continue
             raise
@@ -169,6 +244,14 @@ def gemini_generate_image(*, prompt: str, timeout_s: float | None) -> str | None
             if e.response.status_code in RETRYABLE_STATUS_CODES and attempt < max_retries - 1:
                 wait_time = 2 ** attempt
                 logger.warning(f"[Imagen] Got {e.response.status_code}, retrying in {wait_time}s (attempt {attempt + 1}/{max_retries})")
+                time.sleep(wait_time)
+                continue
+            raise
+        except httpx.RequestError as e:
+            logger.error("[Imagen] Network error calling imagen (%s)", type(e).__name__)
+            if attempt < max_retries - 1:
+                wait_time = 2 ** attempt
+                logger.warning(f"[Imagen] Retrying after network error in {wait_time}s (attempt {attempt + 1}/{max_retries})")
                 time.sleep(wait_time)
                 continue
             raise

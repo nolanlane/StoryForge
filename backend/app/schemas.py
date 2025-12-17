@@ -56,7 +56,7 @@ class AiTextRequest(BaseModel):
     systemPrompt: str = Field(max_length=20000)
     userPrompt: str = Field(max_length=20000)
     jsonMode: bool = False
-    timeoutMs: int | None = Field(default=None, ge=1000, le=120000)
+    timeoutMs: int | None = Field(default=None, ge=1000, le=300000)
     generationConfig: dict | None = None
 
 

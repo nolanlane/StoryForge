@@ -189,15 +189,17 @@ export default function App() {
   const callGeminiText = async (systemPrompt, userPrompt, jsonMode = false, customTimeout, generationConfig) => {
     try {
       if (!requireAuth()) return "";
+      const timeoutMs = customTimeout || 180000;
       const result = await apiFetch('/api/ai/text', {
         method: 'POST',
         body: JSON.stringify({
           systemPrompt,
           userPrompt,
           jsonMode,
-          timeoutMs: customTimeout || 90000,
+          timeoutMs,
           generationConfig
         }),
+        timeoutMs,
         signal: abortControllerRef.current?.signal
       });
       return result?.text || "";
@@ -211,9 +213,11 @@ export default function App() {
   const callImagen = async (prompt) => {
     try {
       if (!requireAuth()) return null;
+      const timeoutMs = 25000;
       const result = await apiFetch('/api/ai/imagen', {
         method: 'POST',
-        body: JSON.stringify({ prompt, timeoutMs: 25000 }),
+        body: JSON.stringify({ prompt, timeoutMs }),
+        timeoutMs,
         signal: abortControllerRef.current?.signal
       });
       return result?.dataUrl || null;
