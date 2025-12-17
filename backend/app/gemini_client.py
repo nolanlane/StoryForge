@@ -132,7 +132,7 @@ def _gemini_generate_text_with_model(
 
     payload = {
         "contents": [{"role": "user", "parts": [{"text": user_prompt}]}],
-        "system_instruction": {"parts": [{"text": system_prompt}]},
+        "systemInstruction": {"parts": [{"text": system_prompt}]},
         "generationConfig": cfg,
     }
 
