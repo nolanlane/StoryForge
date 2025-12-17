@@ -143,6 +143,10 @@ def _gemini_generate_text_with_model(
         effective_timeout_s,
         json_mode,
     )
+    logger.info(
+        "[Gemini] DIAGNOSTIC generationConfig=%s",
+        cfg,
+    )
     if not settings.gemini_api_key:
         logger.error("[Gemini] API key is not set!")
         raise ValueError("STORYFORGE_GEMINI_API_KEY is not configured")
