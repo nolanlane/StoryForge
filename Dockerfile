@@ -3,7 +3,6 @@
 # Stage 1: Build frontend
 FROM node:20-bookworm-slim AS frontend-build
 WORKDIR /app
-COPY storyforge.jsx /app/storyforge.jsx
 COPY frontend /app/frontend
 WORKDIR /app/frontend
 RUN npm ci || npm install

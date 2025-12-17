@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { BookOpen, Save, Download, Loader2 } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { BookOpen, Save, Download, Loader2, RefreshCcw, Wand2, Image as ImageIcon } from 'lucide-react';
 
 const renderMarkdown = (text) => {
   if (!text) return <p className="text-slate-400 italic text-center">Content missing...</p>;
@@ -26,8 +26,72 @@ const renderMarkdown = (text) => {
   });
 };
 
-export const ReaderView = ({ config, setView, exportPDF, isExporting, blueprint, storyImages, storyContent, onAbort }) => {
+const HistoryPanel = ({ versions, isWorking, selectedVersionId, setSelectedVersionId, onRestore }) => {
+  const selected = versions.find(v => v?.id === selectedVersionId);
+
+  return (
+    <div className="mt-3">
+      {versions.length === 0 ? (
+        <div className="text-sm text-slate-500">No saved versions for this chapter yet.</div>
+      ) : (
+        <>
+          <label className="text-xs font-bold text-slate-400 uppercase tracking-wider" htmlFor="version-select">Select a version</label>
+          <select
+            id="version-select"
+            value={selectedVersionId}
+            onChange={(e) => setSelectedVersionId(e.target.value)}
+            disabled={isWorking}
+            className="mt-2 w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none disabled:opacity-50"
+          >
+            <option value="">Choose…</option>
+            {versions
+              .slice()
+              .reverse()
+              .map((v) => {
+                const ts = v?.ts ? new Date(v.ts).toLocaleString() : 'Unknown time';
+                const note = v?.note ? ` — ${v.note}` : '';
+                return (
+                  <option key={v.id} value={v.id}>
+                    {ts}{note}
+                  </option>
+                );
+              })}
+          </select>
+
+          {selected && (
+            <div className="mt-3">
+              <div className="text-xs font-bold text-slate-400 uppercase tracking-wider">Preview</div>
+              <div className="mt-2 p-3 bg-slate-50 border border-slate-200 rounded-xl max-h-64 overflow-y-auto text-sm text-slate-700 whitespace-pre-wrap">
+                {selected.text || ''}
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={isWorking}
+                  onClick={() => onRestore?.(selected.id)}
+                  className="px-4 py-2 bg-slate-900 hover:bg-black text-white rounded-lg text-sm font-bold disabled:opacity-50"
+                >
+                  Restore this version
+                </button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+};
+
+export const ReaderView = ({ config, setView, exportPDF, isExporting, blueprint, storyImages, storyContent, onAbort, isChapterToolsWorking, onRegenerateChapterText, onRewriteChapter, onRegenerateIllustration, getChapterHistory, onRestoreChapterVersion }) => {
   const [activeChapter, setActiveChapter] = useState(0);
+  const [rewriteOpen, setRewriteOpen] = useState(false);
+  const [rewriteInstruction, setRewriteInstruction] = useState('');
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [selectedVersionId, setSelectedVersionId] = useState('');
+
+  useEffect(() => {
+    setSelectedVersionId('');
+  }, [activeChapter]);
 
   const chapters = Array.isArray(blueprint?.chapters) ? blueprint.chapters : [];
 
@@ -124,6 +188,97 @@ export const ReaderView = ({ config, setView, exportPDF, isExporting, blueprint,
                   <div className="text-center mb-10">
                       <span className="text-xs font-bold text-purple-600 uppercase tracking-[0.2em] mb-2 block">Chapter {activeChapter + 1}</span>
                       <h2 className="text-4xl font-serif font-bold text-slate-900">{chapters[activeChapter]?.title || ""}</h2>
+                  </div>
+
+                  <div className="mb-10 bg-white border border-slate-200 rounded-xl p-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                      <div className="text-xs font-bold text-slate-400 uppercase tracking-wider">Chapter Tools</div>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          onClick={() => onRegenerateChapterText?.(activeChapter)}
+                          disabled={isChapterToolsWorking}
+                          className="px-3 py-2 bg-slate-900 hover:bg-black text-white rounded-lg text-sm font-bold flex items-center gap-2 disabled:opacity-50"
+                        >
+                          <RefreshCcw className="w-4 h-4" /> Regenerate Text
+                        </button>
+                        <button
+                          onClick={() => onRegenerateIllustration?.(activeChapter)}
+                          disabled={isChapterToolsWorking}
+                          className="px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm font-bold flex items-center gap-2 disabled:opacity-50"
+                        >
+                          <ImageIcon className="w-4 h-4" /> Regenerate Image
+                        </button>
+                        <button
+                          onClick={() => setRewriteOpen(v => !v)}
+                          disabled={isChapterToolsWorking}
+                          className="px-3 py-2 bg-white hover:bg-slate-50 text-slate-800 rounded-lg text-sm font-bold flex items-center gap-2 border border-slate-200 disabled:opacity-50"
+                        >
+                          <Wand2 className="w-4 h-4" /> Rewrite
+                        </button>
+                        <button
+                          onClick={() => setHistoryOpen(v => !v)}
+                          disabled={isChapterToolsWorking}
+                          className="px-3 py-2 bg-white hover:bg-slate-50 text-slate-800 rounded-lg text-sm font-bold flex items-center gap-2 border border-slate-200 disabled:opacity-50"
+                        >
+                          History
+                        </button>
+                      </div>
+                    </div>
+
+                    {rewriteOpen && (
+                      <form
+                        className="mt-4"
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          if (isChapterToolsWorking) return;
+                          const instr = rewriteInstruction.trim();
+                          if (!instr) return;
+                          onRewriteChapter?.(activeChapter, instr);
+                        }}
+                      >
+                        <label className="text-xs font-bold text-slate-400 uppercase tracking-wider" htmlFor="rewrite-instruction">Rewrite instruction</label>
+                        <textarea
+                          id="rewrite-instruction"
+                          value={rewriteInstruction}
+                          onChange={(e) => setRewriteInstruction(e.target.value)}
+                          placeholder="Example: Make the prose tighter, cut metaphors, increase dialogue, and end on a cliffhanger."
+                          disabled={isChapterToolsWorking}
+                          className="mt-2 w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none resize-none h-24 disabled:opacity-50"
+                        />
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <button
+                            type="submit"
+                            disabled={isChapterToolsWorking || !rewriteInstruction.trim()}
+                            className="px-4 py-2 bg-slate-900 hover:bg-black text-white rounded-lg text-sm font-bold disabled:opacity-50"
+                          >
+                            Apply Rewrite
+                          </button>
+                          <button
+                            type="button"
+                            disabled={isChapterToolsWorking}
+                            onClick={() => { setRewriteInstruction(''); setRewriteOpen(false); }}
+                            className="px-4 py-2 bg-white hover:bg-slate-50 text-slate-700 rounded-lg text-sm font-bold border border-slate-200 disabled:opacity-50"
+                          >
+                            Close
+                          </button>
+                        </div>
+                      </form>
+                    )}
+
+                    {historyOpen && (
+                      <div className="mt-4">
+                        <div className="text-xs font-bold text-slate-400 uppercase tracking-wider">Version history</div>
+                        <p className="text-sm text-slate-500 mt-1">Restore a previous version of this chapter.</p>
+
+                        <HistoryPanel
+                          versions={getChapterHistory ? getChapterHistory(activeChapter) : []}
+                          isWorking={isChapterToolsWorking}
+                          selectedVersionId={selectedVersionId}
+                          setSelectedVersionId={setSelectedVersionId}
+                          onRestore={(versionId) => onRestoreChapterVersion?.(activeChapter, versionId)}
+                        />
+                      </div>
+                    )}
                   </div>
 
                   <div className="prose prose-lg prose-slate font-serif mx-auto">

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { AlertCircle, Trash2 } from 'lucide-react';
+import { AlertCircle, Loader2, Trash2 } from 'lucide-react';
 import { LoadingView } from './components/LoadingView';
 import { AuthView } from './components/AuthView';
 import { LibraryView } from './components/LibraryView';
@@ -17,6 +17,9 @@ export default function App() {
   const [loadingMessage, setLoadingMessage] = useState("");
   const [error, setError] = useState(null);
   const [isExporting, setIsExporting] = useState(false);
+
+  const [isChapterToolsWorking, setIsChapterToolsWorking] = useState(false);
+  const [chapterToolsMessage, setChapterToolsMessage] = useState("");
 
   const [authToken, setAuthToken] = useState(() => localStorage.getItem(STORAGE_KEYS.authToken) || "");
   const [userEmail, setUserEmail] = useState("");
@@ -367,6 +370,241 @@ Avoid: <avoid>${config.avoid}</avoid>`;
     }
   };
 
+  const withChapterTools = async (message, fn) => {
+    setIsChapterToolsWorking(true);
+    setChapterToolsMessage(message);
+    try {
+      return await fn();
+    } finally {
+      setIsChapterToolsWorking(false);
+      setChapterToolsMessage("");
+    }
+  };
+
+  const _getHistoryRoot = (contentObj) => {
+    const root = contentObj && typeof contentObj === 'object' ? contentObj.__history : null;
+    return root && typeof root === 'object' ? root : {};
+  };
+
+  const getChapterHistory = useCallback((index) => {
+    const root = _getHistoryRoot(storyContent);
+    const arr = root?.[String(index)];
+    return Array.isArray(arr) ? arr : [];
+  }, [storyContent]);
+
+  const snapshotChapterVersion = (index, text, note) => {
+    const currentText = String(text || "");
+    if (!currentText.trim()) return;
+
+    setStoryContent(prev => {
+      const next = { ...(prev || {}) };
+      const historyRoot = _getHistoryRoot(next);
+      const key = String(index);
+      const arr = Array.isArray(historyRoot[key]) ? [...historyRoot[key]] : [];
+
+      arr.push({
+        id: makeId(),
+        ts: new Date().toISOString(),
+        note: String(note || ""),
+        text: currentText
+      });
+
+      next.__history = { ...historyRoot, [key]: arr };
+      return next;
+    });
+  };
+
+  const restoreChapterVersion = async (index, versionId) => {
+    if (!requireAuth()) return;
+    const versions = getChapterHistory(index);
+    const v = versions.find(x => x?.id === versionId);
+    if (!v?.text) return;
+
+    await withChapterTools(`Restoring Ch ${index + 1}...`, async () => {
+      const current = storyContent[index] || "";
+      snapshotChapterVersion(index, current, "Before restore");
+      setStoryContent(prev => ({ ...(prev || {}), [index]: v.text }));
+    });
+  };
+
+  const regenerateChapterText = async (index) => {
+    if (!requireAuth()) return;
+    if (!blueprint?.chapters?.length) return;
+    const chap = blueprint.chapters[index];
+    if (!chap) return;
+
+    await withChapterTools(`Regenerating Ch ${index + 1}...`, async () => {
+      const current = storyContent[index] || "";
+      snapshotChapterVersion(index, current, "Before regenerate");
+
+      const total = blueprint.chapters.length;
+      const progress = (index + 1) / total;
+      let tension = "Low (Setup)";
+      if (progress > 0.3) tension = "Medium (Rising Action)";
+      if (progress > 0.7) tension = "High (Climax/Crisis)";
+      if (progress === 1) tension = "Resolution (Falling Action)";
+
+      let context = "START OF STORY. Establish the setting and sensory details immediately.";
+      if (index > 0) {
+        const prevText = storyContent[index - 1] || "";
+        context = `PREVIOUS SCENE ENDING: "...${String(prevText).slice(-2500)}"
+
+CONTINUITY INSTRUCTIONS:
+- Resume IMMEDIATELY from the moment above.
+- Maintain the mood/atmosphere established.`;
+      }
+
+      const nextSummary = index < total - 1 ? blueprint.chapters[index + 1].summary : "The End.";
+
+      const systemPrompt = `You're writing a chapter of a novel. The reader has already bought in—no need to over-explain or sell them on the world.
+
+VOICE: ${config.writingStyle}. ${config.tone} tone.
+
+Write scenes, not summaries. Show characters doing things, talking, making choices. Trust the reader to keep up.
+
+Ground every scene in sensory detail—what does the room smell like, what's the weather, what's in someone's hands. But don't overwrite. A few sharp details beat a paragraph of description.
+
+Dialogue should sound like how people actually talk—interrupted, indirect, sometimes wrong.
+
+End the chapter with forward momentum. Something unresolved, a new question, a door opening.
+
+Output the chapter text only. No titles, no preamble.`;
+
+      const userPrompt = `Story Bible anchor:
+- Central conflict: ${blueprint.central_conflict_engine}
+- Synopsis: ${blueprint.synopsis || ""}
+- Cast: ${(Array.isArray(blueprint.characters) ? blueprint.characters : []).join(" | ")}
+- Avoid: ${config.avoid}
+
+Chapter ${index + 1}/${total}: "${chap.title}"
+Beats (what must happen): ${chap.summary}
+Tension: ${tension}
+Lead-in target (next chapter direction): ${nextSummary}
+
+Continuity context:
+${context}
+
+Length: 900–1400 words. Tight, no filler.`;
+
+      try {
+        const text = await callGeminiText(systemPrompt, userPrompt, false, 90000, {
+          temperature: 0.85,
+          topP: 0.95,
+          topK: 64,
+          maxOutputTokens: 8192
+        });
+        if (!text) return;
+        setStoryContent(prev => ({ ...prev, [index]: text }));
+      } catch (e) {
+        setError(`Regenerate failed: ${e.message}`);
+      }
+    });
+  };
+
+  const rewriteChapter = async (index, instruction) => {
+    if (!requireAuth()) return;
+    if (!blueprint?.chapters?.length) return;
+    const chap = blueprint.chapters[index];
+    if (!chap) return;
+    const original = storyContent[index] || "";
+    if (!String(original).trim()) {
+      setError("Nothing to rewrite yet.");
+      return;
+    }
+
+    await withChapterTools(`Rewriting Ch ${index + 1}...`, async () => {
+      snapshotChapterVersion(index, original, `Before rewrite: ${String(instruction || "").slice(0, 120)}`);
+
+      const total = blueprint.chapters.length;
+      const prev = index > 0 ? (storyContent[index - 1] || "") : "";
+      const nextSummary = index < total - 1 ? blueprint.chapters[index + 1].summary : "The End.";
+
+      const systemPrompt = `You're revising a chapter of a novel. Apply the user's instruction precisely while preserving continuity and the story bible.
+
+Constraints:
+- Keep the same scene facts unless the instruction explicitly changes them.
+- Maintain character voices and tone: ${config.writingStyle}. ${config.tone}.
+- Output the revised chapter text only. No commentary, no headings.`;
+
+      const userPrompt = `Story Bible anchor:
+- Central conflict: ${blueprint.central_conflict_engine}
+- Synopsis: ${blueprint.synopsis || ""}
+- Cast: ${(Array.isArray(blueprint.characters) ? blueprint.characters : []).join(" | ")}
+- Avoid: ${config.avoid}
+
+Chapter ${index + 1}/${total}: "${chap.title}"
+Beats (must still be covered): ${chap.summary}
+Next chapter direction: ${nextSummary}
+
+Previous context (ending excerpt):
+${String(prev).slice(-2500)}
+
+User instruction:
+${instruction}
+
+Original chapter:
+${original}
+
+Return the revised chapter now.`;
+
+      try {
+        const text = await callGeminiText(systemPrompt, userPrompt, false, 90000, {
+          temperature: 0.6,
+          topP: 0.95,
+          topK: 64,
+          maxOutputTokens: 8192
+        });
+        if (!text) return;
+        setStoryContent(prevMap => ({ ...prevMap, [index]: text }));
+      } catch (e) {
+        setError(`Rewrite failed: ${e.message}`);
+      }
+    });
+  };
+
+  const regenerateIllustration = async (index) => {
+    if (!requireAuth()) return;
+    if (!blueprint) return;
+    const text = storyContent[index] || "";
+    if (!String(text).trim()) {
+      setError("Write the chapter first before generating an illustration.");
+      return;
+    }
+
+    await withChapterTools(`Regenerating illustration for Ch ${index + 1}...`, async () => {
+      try {
+        const visualContext = blueprint.character_visuals ? JSON.stringify(blueprint.character_visuals) : "No specific character details.";
+
+        const imgSystemPrompt = `You're an art director describing a single frame from this chapter for an illustrator.
+
+Pick the most visually striking moment. Describe what the camera sees: who's in frame, what they're doing, the environment, the lighting. Be specific and cinematic.
+
+One to two sentences. No text or words in the image.`;
+
+        const imgUserPrompt = `Visual style: ${blueprint.visual_dna}
+Characters: ${visualContext}
+
+Chapter excerpt:
+${String(text).slice(0, 1200)}
+
+Describe the illustration.`;
+
+        const imgPrompt = await callGeminiText(imgSystemPrompt, imgUserPrompt, false, 15000, {
+          temperature: 0.75,
+          topP: 0.9,
+          topK: 40,
+          maxOutputTokens: 512
+        });
+        if (!imgPrompt) return;
+
+        const img = await callImagen(`${imgPrompt} Visual DNA: ${blueprint.visual_dna}. Art style: ${config.artStyle}.`);
+        if (img) setStoryImages(prev => ({ ...prev, [index]: img }));
+      } catch (e) {
+        setError(`Illustration failed: ${e.message}`);
+      }
+    });
+  };
+
   const generateChapter = async (index, currentContentMap, signal) => {
     if (signal.aborted) return;
 
@@ -440,7 +678,11 @@ Length: 900–1400 words. Tight, no filler.`;
       if (!text && signal.aborted) return;
 
       const newContentMap = { ...currentContentMap, [index]: text };
-      setStoryContent(newContentMap);
+      setStoryContent(prev => ({
+        ...(prev || {}),
+        ...newContentMap,
+        __history: (prev && typeof prev === 'object') ? prev.__history : undefined
+      }));
 
       // 2. Paint Image (Safe Block)
       try {
@@ -620,6 +862,13 @@ Describe the illustration.`;
                 <button aria-label="Dismiss error" onClick={() => setError(null)} className="ml-2 hover:bg-red-100 p-1 rounded-full"><Trash2 className="w-4 h-4" /></button>
             </div>
         )}
+
+        {isChapterToolsWorking && (
+          <div className="fixed bottom-4 left-4 right-4 sm:left-auto sm:right-4 z-40 bg-white text-slate-700 px-4 py-3 rounded-xl border border-slate-200 shadow-xl flex items-center gap-3 max-w-[calc(100vw-2rem)] sm:w-[420px]">
+            <Loader2 className="w-4 h-4 animate-spin text-slate-500" />
+            <p className="text-sm font-medium">{chapterToolsMessage || "Working..."}</p>
+          </div>
+        )}
         
         {loading ? (
             <LoadingView 
@@ -742,8 +991,13 @@ Describe the illustration.`;
                         setError(null);
                         try {
                           const s = await apiFetch(`/api/stories/${id}`);
-                          const lastKeys = Object.keys(s.storyContent || {});
-                          const last = lastKeys.length ? s.storyContent[lastKeys[lastKeys.length - 1]] : "";
+                          const numericKeys = Object.keys(s.storyContent || {})
+                            .filter(k => /^\d+$/.test(k))
+                            .map(k => parseInt(k, 10))
+                            .filter(n => Number.isFinite(n));
+                          numericKeys.sort((a, b) => a - b);
+                          const lastIdx = numericKeys.length ? numericKeys[numericKeys.length - 1] : null;
+                          const last = lastIdx !== null ? (s.storyContent?.[String(lastIdx)] || s.storyContent?.[lastIdx] || "") : "";
                           setLoading(true);
                           setLoadingMessage("Forging sequel DNA...");
 
@@ -880,6 +1134,12 @@ Return only the updated JSON. No commentary, no markdown fences.`;
                         storyImages={storyImages} 
                         storyContent={storyContent} 
                         onAbort={stopGeneration}
+                        isChapterToolsWorking={isChapterToolsWorking}
+                        onRegenerateChapterText={regenerateChapterText}
+                        onRewriteChapter={rewriteChapter}
+                        onRegenerateIllustration={regenerateIllustration}
+                        getChapterHistory={getChapterHistory}
+                        onRestoreChapterVersion={restoreChapterVersion}
                     />
                 )}
             </>
