@@ -5,6 +5,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="STORYFORGE_", case_sensitive=False)
 
     gemini_api_key: str
+    gemini_text_model: str = "gemini-3-pro-preview"
     jwt_secret: str
     jwt_algorithm: str = "HS256"
     access_token_exp_minutes: int = 60 * 24 * 7

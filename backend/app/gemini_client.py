@@ -58,7 +58,7 @@ def _sanitize_generation_config(generation_config: dict | None) -> dict:
 
 
 def _text_url() -> str:
-    return "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+    return f"https://generativelanguage.googleapis.com/v1beta/models/{settings.gemini_text_model}:generateContent"
 
 
 def _imagen_url() -> str:
