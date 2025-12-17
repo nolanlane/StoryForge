@@ -237,6 +237,15 @@ def _gemini_generate_text_with_model(
                 if not text and isinstance(candidate, dict) and candidate.get("text"):
                     text = str(candidate.get("text") or "").strip()
 
+                # DIAGNOSTIC: Log response structure to debug truncation.
+                logger.info(
+                    "[Gemini] DIAGNOSTIC model=%s text_length=%s parts_count=%s content_keys=%s",
+                    model,
+                    len(text) if text else 0,
+                    len(parts) if isinstance(parts, list) else (1 if parts else 0),
+                    ",".join(content.keys()) if isinstance(content, dict) else "none",
+                )
+
                 if not text:
                     prompt_fb = data.get("promptFeedback") if isinstance(data, dict) else None
                     block_reason = None

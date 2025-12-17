@@ -5,7 +5,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="STORYFORGE_", case_sensitive=False)
 
     gemini_api_key: str
-    gemini_text_model: str = "gemini-2.5-pro"
+    gemini_text_model: str = "gemini-2.5-flash"
     gemini_text_fallback_model: str = "gemini-2.5-flash"
     gemini_text_timeout_s: float = 180.0
     imagen_model: str = "imagen-4.0-generate-001"
