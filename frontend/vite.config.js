@@ -6,14 +6,14 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
-      '@storyforge': path.resolve(__dirname, '..', 'storyforge.jsx')
+      '@': path.resolve(__dirname, 'src')
     }
   },
   server: {
     port: 5173,
     host: true,
     fs: {
-      allow: [path.resolve(__dirname, '..')]
+      allow: [path.resolve(__dirname)]
     },
     proxy: {
       '/api': process.env.VITE_BACKEND_URL || 'http://localhost:8000',
