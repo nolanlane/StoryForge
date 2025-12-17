@@ -247,11 +247,11 @@ Tone: ${tone}
 Write the concept now. Complete sentences only.`;
     
     try {
-        const text = await callGeminiText(systemPrompt, userPrompt, false, 15000, {
+        const text = await callGeminiText(systemPrompt, userPrompt, false, 45000, {
           temperature: 0.9,
           topP: 0.95,
           topK: 40,
-          maxOutputTokens: 4096
+          maxOutputTokens: 256
         });
         if (text) {
             setConfig(prev => ({ ...prev, prompt: text.trim() }));
