@@ -279,7 +279,7 @@ STRUCTURE: {req.chapterCount} chapters. Same JSON schema as the original.
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             json_mode=True,
-            timeout_s=90.0,
+            timeout_s=None,
             generation_config={"temperature": 0.8, "topP": 0.95, "topK": 64, "maxOutputTokens": 8192},
         )
         blueprint = json.loads(_extract_json(text))

@@ -85,8 +85,7 @@ def _text_url() -> str:
 
 
 def _imagen_url() -> str:
-    # Options: imagen-4.0-generate-001 (standard), imagen-4.0-ultra-generate-001 (best quality), imagen-4.0-fast-generate-001 (fastest)
-    return "https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-ultra-generate-001:predict"
+    return f"https://generativelanguage.googleapis.com/v1beta/models/{settings.imagen_model}:predict"
 
 
 def clean_image_prompt(base_prompt: str) -> str:
@@ -106,11 +105,17 @@ def gemini_generate_text(*, system_prompt: str, user_prompt: str, json_mode: boo
 
     payload = {
         "contents": [{"parts": [{"text": user_prompt}]}],
-        "systemInstruction": {"parts": [{"text": system_prompt}]},
+        "system_instruction": {"parts": [{"text": system_prompt}]},
         "generationConfig": cfg,
     }
 
-    logger.info(f"[Gemini] Calling text API with timeout={timeout_s}, json_mode={json_mode}")
+    effective_timeout_s = float(timeout_s) if timeout_s else float(settings.gemini_text_timeout_s)
+    logger.info(
+        "[Gemini] Calling text API model=%s timeout_s=%s json_mode=%s",
+        settings.gemini_text_model,
+        effective_timeout_s,
+        json_mode,
+    )
     if not settings.gemini_api_key:
         logger.error("[Gemini] API key is not set!")
         raise ValueError("STORYFORGE_GEMINI_API_KEY is not configured")
@@ -141,9 +146,46 @@ def gemini_generate_text(*, system_prompt: str, user_prompt: str, json_mode: boo
                     
                 res.raise_for_status()
                 data = res.json()
-                candidate = data.get("candidates", [{}])[0]
+
+                response_id = data.get("responseId") if isinstance(data, dict) else None
+                model_version = data.get("modelVersion") if isinstance(data, dict) else None
+
+                candidates = data.get("candidates") if isinstance(data, dict) else None
+                if not isinstance(candidates, list) or len(candidates) == 0:
+                    prompt_fb = data.get("promptFeedback") if isinstance(data, dict) else None
+                    block_reason = None
+                    if isinstance(prompt_fb, dict):
+                        block_reason = prompt_fb.get("blockReason") or prompt_fb.get("blockReasonMessage")
+
+                    logger.error(
+                        "[Gemini] No candidates returned model=%s responseId=%s modelVersion=%s blockReason=%s",
+                        settings.gemini_text_model,
+                        response_id,
+                        model_version,
+                        block_reason,
+                    )
+                    raise ValueError("No candidates returned from Gemini")
+
+                candidate = candidates[0] if isinstance(candidates[0], dict) else {}
                 finish_reason = candidate.get("finishReason", "UNKNOWN")
+                finish_message = candidate.get("finishMessage")
                 logger.info("[Gemini] finishReason: %s", finish_reason)
+
+                if finish_message:
+                    logger.info("[Gemini] finishMessage: %s", str(finish_message)[:300])
+
+                safety_ratings = candidate.get("safetyRatings")
+                if isinstance(safety_ratings, list) and safety_ratings:
+                    # Log only the categories + probabilities (no user content)
+                    sr_bits: list[str] = []
+                    for sr in safety_ratings[:8]:
+                        if isinstance(sr, dict):
+                            cat = sr.get("category")
+                            prob = sr.get("probability")
+                            if cat or prob:
+                                sr_bits.append(f"{cat}:{prob}")
+                    if sr_bits:
+                        logger.info("[Gemini] safetyRatings: %s", ", ".join(sr_bits))
 
                 parts = candidate.get("content", {}).get("parts", [])
                 text_bits: list[str] = []
@@ -160,8 +202,10 @@ def gemini_generate_text(*, system_prompt: str, user_prompt: str, json_mode: boo
                         block_reason = prompt_fb.get("blockReason") or prompt_fb.get("blockReasonMessage")
 
                     logger.warning(
-                        "[Gemini] Empty text response model=%s finishReason=%s blockReason=%s",
+                        "[Gemini] Empty text response model=%s responseId=%s modelVersion=%s finishReason=%s blockReason=%s",
                         settings.gemini_text_model,
+                        response_id,
+                        model_version,
                         finish_reason,
                         block_reason,
                     )
@@ -216,9 +260,10 @@ def gemini_generate_text(*, system_prompt: str, user_prompt: str, json_mode: boo
             raise
         except httpx.RequestError as e:
             logger.error(
-                "[Gemini] Network error calling model=%s (%s)",
+                "[Gemini] Network error calling model=%s (%s) %s",
                 settings.gemini_text_model,
                 type(e).__name__,
+                str(e)[:300],
             )
             if attempt < max_retries - 1:
                 wait_time = 2 ** attempt
@@ -245,7 +290,10 @@ def gemini_generate_image(*, prompt: str, timeout_s: float | None) -> str | None
         logger.error("[Imagen] API key is not set!")
         raise ValueError("STORYFORGE_GEMINI_API_KEY is not configured")
 
-    timeout = httpx.Timeout(timeout_s) if timeout_s else httpx.Timeout(25.0)
+    effective_timeout_s = float(timeout_s) if timeout_s else float(settings.imagen_timeout_s)
+    logger.info("[Imagen] Calling predict model=%s timeout_s=%s", settings.imagen_model, effective_timeout_s)
+
+    timeout = httpx.Timeout(timeout_s) if timeout_s else httpx.Timeout(settings.imagen_timeout_s)
     max_retries = 3
     headers = {"x-goog-api-key": settings.gemini_api_key}
     
@@ -253,10 +301,20 @@ def gemini_generate_image(*, prompt: str, timeout_s: float | None) -> str | None
         try:
             with httpx.Client(timeout=timeout) as client:
                 res = client.post(_imagen_url(), json=payload, headers=headers)
+
+                logger.info("[Imagen] Response status: %s", res.status_code)
                 
                 if res.status_code in RETRYABLE_STATUS_CODES and attempt < max_retries - 1:
                     wait_time = 2 ** attempt
-                    logger.warning(f"[Imagen] Got {res.status_code}, retrying in {wait_time}s (attempt {attempt + 1}/{max_retries})")
+                    logger.warning(
+                        "[Imagen] Got %s from model=%s, retrying in %ss (attempt %s/%s) %s",
+                        res.status_code,
+                        settings.imagen_model,
+                        wait_time,
+                        attempt + 1,
+                        max_retries,
+                        _safe_error_detail(res),
+                    )
                     time.sleep(wait_time)
                     continue
                 
@@ -264,20 +322,51 @@ def gemini_generate_image(*, prompt: str, timeout_s: float | None) -> str | None
                 data = res.json()
                 base64_data = (data.get("predictions", [{}])[0] or {}).get("bytesBase64Encoded")
                 if not base64_data:
+                    logger.error("[Imagen] No image bytes returned model=%s", settings.imagen_model)
                     return None
                 return f"data:image/png;base64,{base64_data}"
         except httpx.HTTPStatusError as e:
+            detail = _safe_error_detail(e.response)
+            if e.response.status_code == 404:
+                logger.error(
+                    "[Imagen] Model not found/unreachable model=%s status=404 %s",
+                    settings.imagen_model,
+                    detail,
+                )
+            else:
+                logger.error(
+                    "[Imagen] HTTP error calling model=%s status=%s %s",
+                    settings.imagen_model,
+                    e.response.status_code,
+                    detail,
+                )
             if e.response.status_code in RETRYABLE_STATUS_CODES and attempt < max_retries - 1:
                 wait_time = 2 ** attempt
-                logger.warning(f"[Imagen] Got {e.response.status_code}, retrying in {wait_time}s (attempt {attempt + 1}/{max_retries})")
+                logger.warning(
+                    "[Imagen] Retrying model=%s in %ss (attempt %s/%s)",
+                    settings.imagen_model,
+                    wait_time,
+                    attempt + 1,
+                    max_retries,
+                )
                 time.sleep(wait_time)
                 continue
             raise
         except httpx.RequestError as e:
-            logger.error("[Imagen] Network error calling imagen (%s)", type(e).__name__)
+            logger.error(
+                "[Imagen] Network error calling model=%s (%s) %s",
+                settings.imagen_model,
+                type(e).__name__,
+                str(e)[:300],
+            )
             if attempt < max_retries - 1:
                 wait_time = 2 ** attempt
-                logger.warning(f"[Imagen] Retrying after network error in {wait_time}s (attempt {attempt + 1}/{max_retries})")
+                logger.warning(
+                    "[Imagen] Retrying after network error in %ss (attempt %s/%s)",
+                    wait_time,
+                    attempt + 1,
+                    max_retries,
+                )
                 time.sleep(wait_time)
                 continue
             raise

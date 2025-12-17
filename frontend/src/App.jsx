@@ -213,7 +213,7 @@ export default function App() {
   const callImagen = async (prompt) => {
     try {
       if (!requireAuth()) return null;
-      const timeoutMs = 25000;
+      const timeoutMs = 45000;
       const result = await apiFetch('/api/ai/imagen', {
         method: 'POST',
         body: JSON.stringify({ prompt, timeoutMs }),
@@ -309,7 +309,7 @@ Concept: <concept>${config.prompt || "A unique twist on the genre."}</concept>
 Avoid: <avoid>${config.avoid}</avoid>`;
 
     try {
-      const text = await callGeminiText(systemPrompt, userPrompt, true, 90000, {
+      const text = await callGeminiText(systemPrompt, userPrompt, true, 180000, {
         temperature: 0.9,
         topP: 0.95,
         topK: 64,
@@ -491,7 +491,7 @@ ${context}
 Length: 900–1400 words. Tight, no filler.`;
 
       try {
-        const text = await callGeminiText(systemPrompt, userPrompt, false, 90000, {
+        const text = await callGeminiText(systemPrompt, userPrompt, false, 180000, {
           temperature: 0.85,
           topP: 0.95,
           topK: 64,
@@ -552,7 +552,7 @@ ${original}
 Return the revised chapter now.`;
 
       try {
-        const text = await callGeminiText(systemPrompt, userPrompt, false, 90000, {
+        const text = await callGeminiText(systemPrompt, userPrompt, false, 180000, {
           temperature: 0.6,
           topP: 0.95,
           topK: 64,
@@ -593,7 +593,7 @@ ${String(text).slice(0, 1200)}
 
 Describe the illustration.`;
 
-        const imgPrompt = await callGeminiText(imgSystemPrompt, imgUserPrompt, false, 15000, {
+        const imgPrompt = await callGeminiText(imgSystemPrompt, imgUserPrompt, false, 30000, {
           temperature: 0.75,
           topP: 0.9,
           topK: 40,
@@ -673,7 +673,7 @@ Length: 900–1400 words. Tight, no filler.`;
 
     try {
       // 90s Timeout for Chapter Text
-      const text = await callGeminiText(systemPrompt, userPrompt, false, 90000, {
+      const text = await callGeminiText(systemPrompt, userPrompt, false, 180000, {
         temperature: 0.85,
         topP: 0.95,
         topK: 64,
@@ -709,7 +709,7 @@ ${text.slice(0, 1200)}
 Describe the illustration.`;
           
           // 15s Timeout for Image Description (Fail Fast!)
-          const imgPrompt = await callGeminiText(imgSystemPrompt, imgUserPrompt, false, 15000, {
+          const imgPrompt = await callGeminiText(imgSystemPrompt, imgUserPrompt, false, 30000, {
             temperature: 0.75,
             topP: 0.9,
             topK: 40,
@@ -1106,7 +1106,7 @@ Return only the updated JSON. No commentary, no markdown fences.`;
 
                             const editorUserPrompt = `Current Story Bible JSON:\n${JSON.stringify(blueprint)}\n\nRequested edits (conversation):\n${nextMessages.map(m => `${m.role.toUpperCase()}: ${m.content}`).join("\n")}\n\nReturn the updated Story Bible JSON now.`;
 
-                            const text = await callGeminiText(editorSystemPrompt, editorUserPrompt, true, 90000, {
+                            const text = await callGeminiText(editorSystemPrompt, editorUserPrompt, true, 180000, {
                               temperature: 0.5,
                               topP: 0.9,
                               topK: 40,
