@@ -9,6 +9,19 @@ logger = logging.getLogger(__name__)
 RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 
 
+def _extract_text_from_parts(parts) -> str:
+    text_bits: list[str] = []
+    if isinstance(parts, list):
+        for p in parts:
+            if isinstance(p, dict) and p.get("text"):
+                text_bits.append(str(p.get("text")))
+    elif isinstance(parts, dict):
+        # Some responses represent a single part as an object instead of a list.
+        if parts.get("text"):
+            text_bits.append(str(parts.get("text")))
+    return "".join(text_bits).strip()
+
+
 def _safe_error_detail(res: httpx.Response) -> str:
     try:
         data = res.json()
@@ -150,6 +163,19 @@ def gemini_generate_text(*, system_prompt: str, user_prompt: str, json_mode: boo
                 response_id = data.get("responseId") if isinstance(data, dict) else None
                 model_version = data.get("modelVersion") if isinstance(data, dict) else None
 
+                usage = data.get("usageMetadata") if isinstance(data, dict) else None
+                if isinstance(usage, dict):
+                    pt = usage.get("promptTokenCount")
+                    ct = usage.get("candidatesTokenCount")
+                    tt = usage.get("totalTokenCount")
+                    if pt is not None or ct is not None or tt is not None:
+                        logger.info(
+                            "[Gemini] usage prompt=%s candidates=%s total=%s",
+                            pt,
+                            ct,
+                            tt,
+                        )
+
                 candidates = data.get("candidates") if isinstance(data, dict) else None
                 if not isinstance(candidates, list) or len(candidates) == 0:
                     prompt_fb = data.get("promptFeedback") if isinstance(data, dict) else None
@@ -187,13 +213,9 @@ def gemini_generate_text(*, system_prompt: str, user_prompt: str, json_mode: boo
                     if sr_bits:
                         logger.info("[Gemini] safetyRatings: %s", ", ".join(sr_bits))
 
-                parts = candidate.get("content", {}).get("parts", [])
-                text_bits: list[str] = []
-                if isinstance(parts, list):
-                    for p in parts:
-                        if isinstance(p, dict) and p.get("text"):
-                            text_bits.append(str(p.get("text")))
-                text = "".join(text_bits).strip()
+                content = candidate.get("content") if isinstance(candidate, dict) else None
+                parts = content.get("parts") if isinstance(content, dict) else None
+                text = _extract_text_from_parts(parts)
 
                 if not text:
                     prompt_fb = data.get("promptFeedback") if isinstance(data, dict) else None
@@ -208,6 +230,13 @@ def gemini_generate_text(*, system_prompt: str, user_prompt: str, json_mode: boo
                         model_version,
                         finish_reason,
                         block_reason,
+                    )
+
+                    # Diagnostic without leaking prompts: tell us the response shape.
+                    logger.warning(
+                        "[Gemini] Empty text diagnostics contentType=%s partsType=%s",
+                        type(content).__name__,
+                        type(parts).__name__,
                     )
 
                     if attempt < max_retries - 1:
