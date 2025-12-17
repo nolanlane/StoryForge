@@ -251,7 +251,7 @@ Write the concept now. Complete sentences only.`;
           temperature: 0.9,
           topP: 0.95,
           topK: 40,
-          maxOutputTokens: 256
+          maxOutputTokens: 2048
         });
         if (text) {
             setConfig(prev => ({ ...prev, prompt: text.trim() }));
