@@ -117,7 +117,7 @@ def gemini_generate_text(*, system_prompt: str, user_prompt: str, json_mode: boo
         cfg["responseMimeType"] = "application/json"
 
     payload = {
-        "contents": [{"parts": [{"text": user_prompt}]}],
+        "contents": [{"role": "user", "parts": [{"text": user_prompt}]}],
         "system_instruction": {"parts": [{"text": system_prompt}]},
         "generationConfig": cfg,
     }
@@ -217,6 +217,12 @@ def gemini_generate_text(*, system_prompt: str, user_prompt: str, json_mode: boo
                 parts = content.get("parts") if isinstance(content, dict) else None
                 text = _extract_text_from_parts(parts)
 
+                # Fallbacks for unexpected response shapes.
+                if not text and isinstance(content, dict) and content.get("text"):
+                    text = str(content.get("text") or "").strip()
+                if not text and isinstance(candidate, dict) and candidate.get("text"):
+                    text = str(candidate.get("text") or "").strip()
+
                 if not text:
                     prompt_fb = data.get("promptFeedback") if isinstance(data, dict) else None
                     block_reason = None
@@ -232,11 +238,15 @@ def gemini_generate_text(*, system_prompt: str, user_prompt: str, json_mode: boo
                         block_reason,
                     )
 
-                    # Diagnostic without leaking prompts: tell us the response shape.
+                    # Diagnostics without leaking prompts: tell us the response shape.
+                    content_keys = list(content.keys()) if isinstance(content, dict) else []
+                    candidate_keys = list(candidate.keys()) if isinstance(candidate, dict) else []
                     logger.warning(
-                        "[Gemini] Empty text diagnostics contentType=%s partsType=%s",
+                        "[Gemini] Empty text diagnostics contentType=%s partsType=%s contentKeys=%s candidateKeys=%s",
                         type(content).__name__,
                         type(parts).__name__,
+                        ",".join(content_keys[:30]),
+                        ",".join(candidate_keys[:30]),
                     )
 
                     if attempt < max_retries - 1:
