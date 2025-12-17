@@ -88,7 +88,9 @@ def _sanitize_generation_config(generation_config: dict | None) -> dict:
         allowed["topK"] = max(1, min(128, int(allowed["topK"])))
 
     if "maxOutputTokens" in allowed:
-        allowed["maxOutputTokens"] = max(1, min(8192, int(allowed["maxOutputTokens"])))
+        # Keep an upper bound to prevent runaway responses, but allow larger outputs
+        # for newer Gemini models.
+        allowed["maxOutputTokens"] = max(1, min(32768, int(allowed["maxOutputTokens"])))
 
     return allowed
 
@@ -120,7 +122,7 @@ def _gemini_generate_text_with_model(
 ) -> str:
     cfg = {
         "temperature": 0.85,
-        "maxOutputTokens": 8192,
+        "maxOutputTokens": 16384,
         "topK": 64,
         "topP": 0.95,
     }
