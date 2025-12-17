@@ -29,16 +29,39 @@ const renderMarkdown = (text) => {
 export const ReaderView = ({ config, setView, exportPDF, isExporting, blueprint, storyImages, storyContent, onAbort }) => {
   const [activeChapter, setActiveChapter] = useState(0);
 
+  const chapters = Array.isArray(blueprint?.chapters) ? blueprint.chapters : [];
+
+  if (!chapters.length) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-slate-50">
+        <div className="text-slate-500">No chapters to display.</div>
+      </div>
+    );
+  }
+
   return (
     <div className="h-screen flex flex-col bg-slate-50 overflow-hidden">
 
       {/* Toolbar */}
-      <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-6 flex-shrink-0 z-10">
+      <header className="min-h-16 bg-white border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 px-4 sm:px-6 py-3 sm:py-0 flex-shrink-0 z-10">
          <div className="flex items-center gap-4">
             <BookOpen className="w-6 h-6 text-purple-600" />
-            <h1 className="font-serif font-bold text-slate-800 truncate max-w-md">{config.title}</h1>
+            <h1 className="font-serif font-bold text-slate-800 truncate max-w-[12rem] sm:max-w-md">{config.title}</h1>
          </div>
-         <div className="flex items-center gap-3">
+         <div className="flex items-center gap-3 flex-wrap justify-end">
+            <div className="md:hidden">
+              <label className="sr-only" htmlFor="chapter-select">Chapter</label>
+              <select
+                id="chapter-select"
+                value={activeChapter}
+                onChange={(e) => setActiveChapter(parseInt(e.target.value))}
+                className="px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm font-medium text-slate-700"
+              >
+                {chapters.map((chap, i) => (
+                  <option key={i} value={i}>{`Ch ${i + 1}: ${chap.title}`}</option>
+                ))}
+              </select>
+            </div>
             {config.onSave && (
               <button
                 onClick={config.onSave}
@@ -68,7 +91,7 @@ export const ReaderView = ({ config, setView, exportPDF, isExporting, blueprint,
           {/* Sidebar */}
           <nav className="w-64 bg-slate-50 border-r border-slate-200 overflow-y-auto hidden md:block p-4 space-y-1">
               <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 px-2">Table of Contents</div>
-              {blueprint.chapters.map((chap, i) => (
+              {chapters.map((chap, i) => (
                   <button
                       key={i}
                       onClick={() => setActiveChapter(i)}
@@ -83,7 +106,7 @@ export const ReaderView = ({ config, setView, exportPDF, isExporting, blueprint,
 
           {/* Main Content */}
           <main className="flex-1 overflow-y-auto bg-white/50 relative">
-              <div className="max-w-3xl mx-auto py-12 px-8 min-h-full bg-white shadow-sm my-0 md:my-8 rounded-none md:rounded-xl border-x border-slate-100">
+              <div className="max-w-3xl mx-auto py-8 sm:py-12 px-4 sm:px-8 min-h-full bg-white shadow-sm my-0 md:my-8 rounded-none md:rounded-xl border-x border-slate-100">
 
                   {/* Chapter Header Image */}
                   {storyImages[activeChapter] ? (
@@ -100,7 +123,7 @@ export const ReaderView = ({ config, setView, exportPDF, isExporting, blueprint,
 
                   <div className="text-center mb-10">
                       <span className="text-xs font-bold text-purple-600 uppercase tracking-[0.2em] mb-2 block">Chapter {activeChapter + 1}</span>
-                      <h2 className="text-4xl font-serif font-bold text-slate-900">{blueprint.chapters[activeChapter].title}</h2>
+                      <h2 className="text-4xl font-serif font-bold text-slate-900">{chapters[activeChapter]?.title || ""}</h2>
                   </div>
 
                   <div className="prose prose-lg prose-slate font-serif mx-auto">
@@ -117,7 +140,7 @@ export const ReaderView = ({ config, setView, exportPDF, isExporting, blueprint,
                           ← Previous
                       </button>
                       <button
-                          disabled={activeChapter === blueprint.chapters.length - 1}
+                          disabled={activeChapter === chapters.length - 1}
                           onClick={() => setActiveChapter(c => c+1)}
                           className="hover:text-purple-600 disabled:opacity-20 flex items-center gap-1"
                       >

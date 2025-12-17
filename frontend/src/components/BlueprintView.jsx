@@ -5,7 +5,7 @@ export const BlueprintView = ({ config, setConfig, blueprint, storyImages, setVi
   <div className="max-w-4xl mx-auto py-8 px-4 animate-in fade-in slide-in-from-bottom-8">
 
     {/* Header */}
-    <div className="flex items-center justify-between mb-8">
+    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
       <div>
         <button
           onClick={() => { onAbort(); setView('setup'); }}
@@ -17,7 +17,7 @@ export const BlueprintView = ({ config, setConfig, blueprint, storyImages, setVi
       </div>
       <button
           onClick={startDrafting}
-          className="px-6 py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-bold shadow-lg shadow-purple-200 transition-all flex items-center gap-2"
+          className="px-6 py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-bold shadow-lg shadow-purple-200 transition-all flex items-center gap-2 w-full sm:w-auto justify-center"
       >
           Start Production <ChevronRight className="w-4 h-4" />
       </button>
@@ -30,7 +30,7 @@ export const BlueprintView = ({ config, setConfig, blueprint, storyImages, setVi
           {/* Cover Preview */}
           <div className="bg-white p-2 rounded-xl shadow-sm border border-slate-200">
               {storyImages.cover ? (
-                  <img src={storyImages.cover} className="w-full aspect-[2/3] object-cover rounded-lg" alt="Cover" />
+                  <img src={storyImages.cover} className="w-full aspect-[2/3] object-cover rounded-lg" alt={blueprint?.title ? `Cover for ${blueprint.title}` : "Cover"} />
               ) : (
                   <div className="w-full aspect-[2/3] bg-slate-100 rounded-lg flex items-center justify-center text-slate-400 text-sm">Generating Cover...</div>
               )}
@@ -76,20 +76,34 @@ export const BlueprintView = ({ config, setConfig, blueprint, storyImages, setVi
             </div>
 
             <div className="mt-4 flex gap-2">
-              <input
-                value={chatInput}
-                onChange={(e) => setChatInput(e.target.value)}
-                placeholder="Request a DNA rewrite…"
-                className="flex-1 p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none"
-                disabled={isChatWorking}
-              />
-              <button
-                onClick={onSendChat}
-                disabled={isChatWorking || !chatInput.trim()}
-                className="px-4 py-3 bg-slate-900 hover:bg-black text-white rounded-xl font-bold disabled:opacity-50"
+              <form
+                className="flex-1 flex gap-2"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (!isChatWorking && chatInput.trim()) onSendChat();
+                }}
               >
-                Apply
-              </button>
+                <input
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  placeholder="Request a DNA rewrite…"
+                  className="flex-1 p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none"
+                  disabled={isChatWorking}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      if (!isChatWorking && chatInput.trim()) onSendChat();
+                    }
+                  }}
+                />
+                <button
+                  type="submit"
+                  disabled={isChatWorking || !chatInput.trim()}
+                  className="px-4 py-3 bg-slate-900 hover:bg-black text-white rounded-xl font-bold disabled:opacity-50"
+                >
+                  Apply
+                </button>
+              </form>
             </div>
           </div>
       </div>
@@ -118,7 +132,7 @@ export const BlueprintView = ({ config, setConfig, blueprint, storyImages, setVi
           <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
               <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4">Cast</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {blueprint.characters.map((char, i) => {
+                  {(Array.isArray(blueprint.characters) ? blueprint.characters : []).map((char, i) => {
                       const parts = char.split(':');
                       const name = parts[0].trim();
                       const desc = parts.slice(1).join(':').trim(); // Join back in case description has colons

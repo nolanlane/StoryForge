@@ -19,33 +19,33 @@ export const LibraryView = ({ userEmail, stories, onOpen, onDelete, onSequel, on
       ) : (
         <div className="divide-y divide-slate-100">
           {stories.map((s) => (
-            <div key={s.id} className="p-5 flex items-center justify-between gap-6">
+            <div key={s.id} className="p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 sm:gap-6">
               <div className="min-w-0">
                 <div className="font-serif font-bold text-slate-900 truncate">{s.title || "Untitled"}</div>
                 <div className="text-xs text-slate-500 mt-1">
                   {s.genre || ""}{s.tone ? ` • ${s.tone}` : ""}{s.createdAt ? ` • ${new Date(s.createdAt).toLocaleString()}` : ""}
                 </div>
               </div>
-              <div className="flex items-center gap-2 flex-shrink-0">
+              <div className="flex items-center gap-2 flex-shrink-0 flex-wrap justify-start sm:justify-end">
                 <button
                   onClick={() => onOpen(s.id)}
                   disabled={isWorking}
-                  className="px-3 py-2 bg-slate-900 hover:bg-black text-white rounded-lg text-sm font-bold"
+                  className="px-3 py-2 bg-slate-900 hover:bg-black text-white rounded-lg text-sm font-bold disabled:opacity-50"
                 >
                   Open
                 </button>
                 <button
                   onClick={() => onSequel(s.id)}
                   disabled={isWorking}
-                  className="px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm font-bold"
+                  className="px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm font-bold disabled:opacity-50"
                 >
                   Sequel
                 </button>
                 <button
                   onClick={() => onDelete(s.id)}
                   disabled={isWorking}
-                  className="px-3 py-2 text-red-600 hover:bg-red-50 rounded-lg text-sm font-bold"
-                  title="Delete"
+                  aria-label="Delete story"
+                  className="px-3 py-2 text-red-600 hover:bg-red-50 rounded-lg text-sm font-bold disabled:opacity-50"
                 >
                   <Trash2 className="w-4 h-4" />
                 </button>

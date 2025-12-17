@@ -8,7 +8,7 @@ import { BlueprintView } from './components/BlueprintView';
 import { ReaderView } from './components/ReaderView';
 
 import { PDF_LIB_URL, STORAGE_KEYS, BANNED_PHRASES, BANNED_NAMES, BANNED_DESCRIPTOR_TOKENS } from './lib/constants';
-import { extractJSON, makeId } from './lib/utils';
+import { extractJSON, makeId, fetchSafe } from './lib/utils';
 
 export default function App() {
   // --- State ---
@@ -57,18 +57,34 @@ export default function App() {
   const [currentChapterGenIndex, setCurrentChapterGenIndex] = useState(0);
 
   const apiFetch = useCallback(async (path, options = {}) => {
-    const { skipAuth, ...fetchOptions } = options;
+    const { skipAuth, timeoutMs, ...fetchOptions } = options;
     const headers = { ...(fetchOptions.headers || {}) };
     if (!skipAuth && authToken) headers.Authorization = `Bearer ${authToken}`;
     if (!headers['Content-Type'] && fetchOptions.body) headers['Content-Type'] = 'application/json';
 
-    const res = await fetch(path, {
-      ...fetchOptions,
-      headers,
-      signal: fetchOptions.signal
-    });
+    let res;
+    try {
+      res = await fetchSafe(
+        path,
+        {
+          ...fetchOptions,
+          headers,
+          signal: fetchOptions.signal
+        },
+        timeoutMs || 90000
+      );
+    } catch (e) {
+      throw e;
+    }
 
     if (!res.ok) {
+      if (res.status === 401 && !skipAuth) {
+        setAuthToken("");
+        localStorage.removeItem(STORAGE_KEYS.authToken);
+        setUserEmail("");
+        setView('auth');
+        throw new Error("Please sign in first.");
+      }
       const errData = await res.json().catch(() => ({}));
       let msg = `API Error: ${res.status}`;
       if (Array.isArray(errData.detail)) {
@@ -598,10 +614,10 @@ Describe the illustration.`;
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-900 selection:bg-purple-100 selection:text-purple-900">
         {error && (
-            <div className="fixed top-4 right-4 z-50 bg-red-50 text-red-600 px-4 py-3 rounded-xl border border-red-200 shadow-xl flex items-center gap-3 animate-in slide-in-from-top-2">
+            <div role="alert" aria-live="assertive" className="fixed top-4 left-4 right-4 sm:left-auto sm:right-4 z-50 bg-red-50 text-red-600 px-4 py-3 rounded-xl border border-red-200 shadow-xl flex items-center gap-3 animate-in slide-in-from-top-2 max-w-[calc(100vw-2rem)] sm:w-[420px] break-words">
                 <AlertCircle className="w-5 h-5" />
                 <p className="text-sm font-medium">{error}</p>
-                <button onClick={() => setError(null)} className="ml-2 hover:bg-red-100 p-1 rounded-full"><Trash2 className="w-4 h-4" /></button>
+                <button aria-label="Dismiss error" onClick={() => setError(null)} className="ml-2 hover:bg-red-100 p-1 rounded-full"><Trash2 className="w-4 h-4" /></button>
             </div>
         )}
         

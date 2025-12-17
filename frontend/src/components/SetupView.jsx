@@ -64,10 +64,11 @@ export const SetupView = ({ config, setConfig, generateBlueprint, onRollDice, us
         </div>
 
         {/* Genre & Tone */}
-        <div className="grid grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
           <div className="space-y-2">
-            <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Genre</label>
+            <label htmlFor="setup-genre" className="text-xs font-bold text-slate-400 uppercase tracking-wider">Genre</label>
             <select
+              id="setup-genre"
               value={config.genre}
               onChange={(e) => setConfig({...config, genre: e.target.value})}
               className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-purple-500 outline-none transition-all font-medium"
@@ -101,8 +102,9 @@ export const SetupView = ({ config, setConfig, generateBlueprint, onRollDice, us
             </select>
           </div>
           <div className="space-y-2">
-            <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Tone</label>
+            <label htmlFor="setup-tone" className="text-xs font-bold text-slate-400 uppercase tracking-wider">Tone</label>
             <select
+              id="setup-tone"
               value={config.tone}
               onChange={(e) => setConfig({...config, tone: e.target.value})}
               className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-purple-500 outline-none transition-all font-medium"
@@ -132,7 +134,7 @@ export const SetupView = ({ config, setConfig, generateBlueprint, onRollDice, us
         {/* Inputs */}
         <div className="space-y-2">
           <div className="flex justify-between items-end mb-2">
-            <label className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
+            <label htmlFor="setup-concept" className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
               <Sparkles className="w-3 h-3 text-purple-500" /> Story Concept
             </label>
             <button
@@ -146,6 +148,7 @@ export const SetupView = ({ config, setConfig, generateBlueprint, onRollDice, us
             </button>
           </div>
           <textarea
+            id="setup-concept"
             value={config.prompt}
             onChange={(e) => setConfig({...config, prompt: e.target.value})}
             placeholder="Describe your idea or roll the dice for inspiration..."
@@ -156,8 +159,9 @@ export const SetupView = ({ config, setConfig, generateBlueprint, onRollDice, us
         {/* Advanced Toggles */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
            <div className="space-y-2">
-             <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Length</label>
+             <label htmlFor="setup-length" className="text-xs font-bold text-slate-400 uppercase tracking-wider">Length</label>
              <select
+                id="setup-length"
                 value={config.chapterCount}
                 onChange={(e) => setConfig({...config, chapterCount: parseInt(e.target.value)})}
                 className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none"
@@ -169,10 +173,11 @@ export const SetupView = ({ config, setConfig, generateBlueprint, onRollDice, us
              </select>
            </div>
            <div className="space-y-2">
-             <label className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+             <label htmlFor="setup-avoid" className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
                 <Ban className="w-3 h-3 text-red-400" /> Avoid
              </label>
              <input
+                id="setup-avoid"
                 value={config.avoid}
                 onChange={(e) => setConfig({...config, avoid: e.target.value})}
                 placeholder="Tropes to kill..."

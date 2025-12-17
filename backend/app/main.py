@@ -230,8 +230,8 @@ def ai_text(req: AiTextRequest, current_user: User = Depends(get_current_user)) 
         )
         return AiTextResponse(text=text)
     except Exception as e:
-        logger.error(f"AI Text Generation failed: {e}")
-        raise HTTPException(status_code=502, detail=str(e))
+        logger.error("AI Text Generation failed (%s)", type(e).__name__)
+        raise HTTPException(status_code=502, detail="AI provider request failed")
 
 
 @app.post("/api/ai/imagen", response_model=AiImagenResponse)
@@ -241,12 +241,19 @@ def ai_imagen(req: AiImagenRequest, current_user: User = Depends(get_current_use
         data_url = gemini_generate_image(prompt=req.prompt, timeout_s=timeout_s)
         return AiImagenResponse(dataUrl=data_url)
     except Exception as e:
-        logger.error(f"AI Image Generation failed: {e}")
-        raise HTTPException(status_code=502, detail=str(e))
+        logger.error("AI Image Generation failed (%s)", type(e).__name__)
+        raise HTTPException(status_code=502, detail="AI provider request failed")
 
 
 @app.post("/api/ai/sequel", response_model=AiSequelResponse)
 def ai_sequel(req: AiSequelRequest, current_user: User = Depends(get_current_user)) -> AiSequelResponse:
+    banned_bits: list[str] = []
+    if req.bannedPhrases:
+        banned_bits.append("Avoid these phrases: " + "; ".join(req.bannedPhrases[:50]))
+    if req.bannedDescriptorTokens:
+        banned_bits.append("Avoid these descriptor tokens: " + ", ".join(req.bannedDescriptorTokens[:80]))
+    bans = ("\n".join(banned_bits) + "\n\n") if banned_bits else ""
+
     system_prompt = f"""You're developing a sequel to an existing story. Same world, new chapter.
 
 Think about what made the original compelling and how to honor that while giving readers something fresh. The best sequels don't just repeat—they deepen.
@@ -259,7 +266,7 @@ SEQUEL CRAFT:
 
 STRUCTURE: {req.chapterCount} chapters. Same JSON schema as the original.
 
-Return valid JSON only."""
+{bans}Return valid JSON only."""
 
     user_prompt = (
         f"Original Story Bible:\n{json.dumps(req.sourceBlueprint)}\n\n"
@@ -278,8 +285,8 @@ Return valid JSON only."""
         blueprint = json.loads(_extract_json(text))
         return AiSequelResponse(blueprint=blueprint)
     except Exception as e:
-        logger.error(f"AI Sequel Generation failed: {e}")
-        raise HTTPException(status_code=502, detail=str(e))
+        logger.error("AI Sequel Generation failed (%s)", type(e).__name__)
+        raise HTTPException(status_code=502, detail="AI provider request failed")
 
 
 def _extract_json(text: str) -> str:
