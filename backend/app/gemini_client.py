@@ -143,16 +143,42 @@ def gemini_generate_text(*, system_prompt: str, user_prompt: str, json_mode: boo
                 data = res.json()
                 candidate = data.get("candidates", [{}])[0]
                 finish_reason = candidate.get("finishReason", "UNKNOWN")
-                logger.info(f"[Gemini] finishReason: {finish_reason}")
-                text = (
-                    candidate
-                    .get("content", {})
-                    .get("parts", [{}])[0]
-                    .get("text", "")
-                    or ""
-                )
+                logger.info("[Gemini] finishReason: %s", finish_reason)
+
+                parts = candidate.get("content", {}).get("parts", [])
+                text_bits: list[str] = []
+                if isinstance(parts, list):
+                    for p in parts:
+                        if isinstance(p, dict) and p.get("text"):
+                            text_bits.append(str(p.get("text")))
+                text = "".join(text_bits).strip()
+
                 if not text:
-                    logger.warning("[Gemini] Empty text response.")
+                    prompt_fb = data.get("promptFeedback") if isinstance(data, dict) else None
+                    block_reason = None
+                    if isinstance(prompt_fb, dict):
+                        block_reason = prompt_fb.get("blockReason") or prompt_fb.get("blockReasonMessage")
+
+                    logger.warning(
+                        "[Gemini] Empty text response model=%s finishReason=%s blockReason=%s",
+                        settings.gemini_text_model,
+                        finish_reason,
+                        block_reason,
+                    )
+
+                    if attempt < max_retries - 1:
+                        wait_time = 2 ** attempt
+                        logger.warning(
+                            "[Gemini] Retrying after empty response in %ss (attempt %s/%s)",
+                            wait_time,
+                            attempt + 1,
+                            max_retries,
+                        )
+                        time.sleep(wait_time)
+                        continue
+
+                    raise ValueError("Empty response from Gemini model")
+
                 return text
         except httpx.HTTPStatusError as e:
             detail = _safe_error_detail(e.response)
