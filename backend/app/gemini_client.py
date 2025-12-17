@@ -97,6 +97,10 @@ def _text_url() -> str:
     return f"https://generativelanguage.googleapis.com/v1beta/models/{settings.gemini_text_model}:generateContent"
 
 
+def _text_url_for_model(model: str) -> str:
+    return f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+
+
 def _imagen_url() -> str:
     return f"https://generativelanguage.googleapis.com/v1beta/models/{settings.imagen_model}:predict"
 
@@ -105,7 +109,15 @@ def clean_image_prompt(base_prompt: str) -> str:
     return f"{base_prompt}. NO TEXT, NO WORDS, NO TYPOGRAPHY, NO LABELS, NO WATERMARKS, NO SIGNATURES. High contrast, sharp focus, 8k." 
 
 
-def gemini_generate_text(*, system_prompt: str, user_prompt: str, json_mode: bool, timeout_s: float | None, generation_config: dict | None) -> str:
+def _gemini_generate_text_with_model(
+    *,
+    model: str,
+    system_prompt: str,
+    user_prompt: str,
+    json_mode: bool,
+    timeout_s: float | None,
+    generation_config: dict | None,
+) -> str:
     cfg = {
         "temperature": 0.85,
         "maxOutputTokens": 8192,
@@ -125,7 +137,7 @@ def gemini_generate_text(*, system_prompt: str, user_prompt: str, json_mode: boo
     effective_timeout_s = float(timeout_s) if timeout_s else float(settings.gemini_text_timeout_s)
     logger.info(
         "[Gemini] Calling text API model=%s timeout_s=%s json_mode=%s",
-        settings.gemini_text_model,
+        model,
         effective_timeout_s,
         json_mode,
     )
@@ -140,7 +152,7 @@ def gemini_generate_text(*, system_prompt: str, user_prompt: str, json_mode: boo
     for attempt in range(max_retries):
         try:
             with httpx.Client(timeout=timeout) as client:
-                res = client.post(_text_url(), json=payload, headers=headers)
+                res = client.post(_text_url_for_model(model), json=payload, headers=headers)
                 logger.info(f"[Gemini] Response status: {res.status_code}")
                 
                 if res.status_code in RETRYABLE_STATUS_CODES and attempt < max_retries - 1:
@@ -148,7 +160,7 @@ def gemini_generate_text(*, system_prompt: str, user_prompt: str, json_mode: boo
                     logger.warning(
                         "[Gemini] Got %s from model=%s, retrying in %ss (attempt %s/%s) %s",
                         res.status_code,
-                        settings.gemini_text_model,
+                        model,
                         wait_time,
                         attempt + 1,
                         max_retries,
@@ -185,7 +197,7 @@ def gemini_generate_text(*, system_prompt: str, user_prompt: str, json_mode: boo
 
                     logger.error(
                         "[Gemini] No candidates returned model=%s responseId=%s modelVersion=%s blockReason=%s",
-                        settings.gemini_text_model,
+                        model,
                         response_id,
                         model_version,
                         block_reason,
@@ -231,7 +243,7 @@ def gemini_generate_text(*, system_prompt: str, user_prompt: str, json_mode: boo
 
                     logger.warning(
                         "[Gemini] Empty text response model=%s responseId=%s modelVersion=%s finishReason=%s blockReason=%s",
-                        settings.gemini_text_model,
+                        model,
                         response_id,
                         model_version,
                         finish_reason,
@@ -268,19 +280,19 @@ def gemini_generate_text(*, system_prompt: str, user_prompt: str, json_mode: boo
             if e.response.status_code == 404:
                 logger.error(
                     "[Gemini] Text model not found/unreachable model=%s endpoint=v1beta status=404 %s",
-                    settings.gemini_text_model,
+                    model,
                     detail,
                 )
             elif e.response.status_code == 400:
                 logger.error(
                     "[Gemini] Bad request calling model=%s status=400 %s",
-                    settings.gemini_text_model,
+                    model,
                     detail,
                 )
             else:
                 logger.error(
                     "[Gemini] HTTP error calling model=%s status=%s %s",
-                    settings.gemini_text_model,
+                    model,
                     e.response.status_code,
                     detail,
                 )
@@ -289,7 +301,7 @@ def gemini_generate_text(*, system_prompt: str, user_prompt: str, json_mode: boo
                 wait_time = 2 ** attempt
                 logger.warning(
                     "[Gemini] Retrying model=%s in %ss (attempt %s/%s)",
-                    settings.gemini_text_model,
+                    model,
                     wait_time,
                     attempt + 1,
                     max_retries,
@@ -300,7 +312,7 @@ def gemini_generate_text(*, system_prompt: str, user_prompt: str, json_mode: boo
         except httpx.RequestError as e:
             logger.error(
                 "[Gemini] Network error calling model=%s (%s) %s",
-                settings.gemini_text_model,
+                model,
                 type(e).__name__,
                 str(e)[:300],
             )
@@ -317,6 +329,53 @@ def gemini_generate_text(*, system_prompt: str, user_prompt: str, json_mode: boo
             raise
     
     raise Exception("Max retries exceeded for Gemini API")
+
+
+def gemini_generate_text(*, system_prompt: str, user_prompt: str, json_mode: bool, timeout_s: float | None, generation_config: dict | None) -> str:
+    primary = settings.gemini_text_model
+    fallback = getattr(settings, "gemini_text_fallback_model", "") or ""
+    models: list[str] = [primary]
+    if fallback and fallback != primary:
+        models.append(fallback)
+
+    last_err: Exception | None = None
+    for i, model in enumerate(models):
+        try:
+            return _gemini_generate_text_with_model(
+                model=model,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                json_mode=json_mode,
+                timeout_s=timeout_s,
+                generation_config=generation_config,
+            )
+        except httpx.HTTPStatusError as e:
+            # If the primary model is unavailable, fall back.
+            if e.response is not None and e.response.status_code == 404 and i < len(models) - 1:
+                logger.warning(
+                    "[Gemini] Falling back from model=%s to model=%s due to 404",
+                    model,
+                    models[i + 1],
+                )
+                last_err = e
+                continue
+            last_err = e
+        except ValueError as e:
+            # Preview models can return candidates with empty content; fall back to a stable model.
+            if i < len(models) - 1:
+                logger.warning(
+                    "[Gemini] Falling back from model=%s to model=%s due to empty/invalid response (%s)",
+                    model,
+                    models[i + 1],
+                    type(e).__name__,
+                )
+                last_err = e
+                continue
+            last_err = e
+
+    if last_err:
+        raise last_err
+    raise Exception("Gemini text generation failed")
 
 
 def gemini_generate_image(*, prompt: str, timeout_s: float | None) -> str | None:

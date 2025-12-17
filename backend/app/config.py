@@ -6,6 +6,7 @@ class Settings(BaseSettings):
 
     gemini_api_key: str
     gemini_text_model: str = "gemini-3-pro-preview"
+    gemini_text_fallback_model: str = "gemini-2.5-flash"
     gemini_text_timeout_s: float = 180.0
     imagen_model: str = "imagen-4.0-generate-001"
     imagen_timeout_s: float = 45.0
