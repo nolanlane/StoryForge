@@ -1,5 +1,7 @@
 import json
+import logging
 import os
+from contextlib import asynccontextmanager
 from datetime import datetime
 
 from fastapi import Depends, FastAPI, HTTPException
@@ -29,8 +31,16 @@ from .schemas import (
     UserResponse,
 )
 
+logger = logging.getLogger(__name__)
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    if settings.db_url.startswith("sqlite:////data/"):
+        os.makedirs("/data", exist_ok=True)
+    Base.metadata.create_all(bind=engine)
+    yield
+
+app = FastAPI(lifespan=lifespan)
 
 
 def _validate_password(password: str) -> None:
@@ -46,13 +56,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-@app.on_event("startup")
-def _startup() -> None:
-    if settings.db_url.startswith("sqlite:////data/"):
-        os.makedirs("/data", exist_ok=True)
-    Base.metadata.create_all(bind=engine)
 
 
 @app.get("/health")
@@ -227,6 +230,7 @@ def ai_text(req: AiTextRequest, current_user: User = Depends(get_current_user)) 
         )
         return AiTextResponse(text=text)
     except Exception as e:
+        logger.error(f"AI Text Generation failed: {e}")
         raise HTTPException(status_code=502, detail=str(e))
 
 
@@ -237,6 +241,7 @@ def ai_imagen(req: AiImagenRequest, current_user: User = Depends(get_current_use
         data_url = gemini_generate_image(prompt=req.prompt, timeout_s=timeout_s)
         return AiImagenResponse(dataUrl=data_url)
     except Exception as e:
+        logger.error(f"AI Image Generation failed: {e}")
         raise HTTPException(status_code=502, detail=str(e))
 
 
@@ -273,6 +278,7 @@ Return valid JSON only."""
         blueprint = json.loads(_extract_json(text))
         return AiSequelResponse(blueprint=blueprint)
     except Exception as e:
+        logger.error(f"AI Sequel Generation failed: {e}")
         raise HTTPException(status_code=502, detail=str(e))
 
 
