@@ -91,6 +91,19 @@ class AiSequelRequest(BaseModel):
         if len(raw.encode("utf-8")) > 200_000:
             raise ValueError("sourceBlueprint too large")
 
+        # Check recursion depth
+        def check_depth(obj, depth=0):
+            if depth > 20:
+                raise ValueError("sourceBlueprint too deep")
+            if isinstance(obj, dict):
+                for k, val in obj.items():
+                    check_depth(val, depth + 1)
+            elif isinstance(obj, list):
+                for item in obj:
+                    check_depth(item, depth + 1)
+
+        check_depth(v)
+
         return v
 
 
