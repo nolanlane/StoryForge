@@ -9,21 +9,36 @@ RUN npm ci || npm install
 RUN ln -s /app/frontend/node_modules /app/node_modules
 RUN npm run build
 
-# Stage 2: Production runtime
+# Stage 2: Build Python dependencies
+FROM python:3.11-slim AS backend-build
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+RUN pip wheel --no-cache-dir --no-deps --wheel-dir /app/wheels -r requirements.txt
+
+# Stage 3: Production runtime
 FROM python:3.11-slim AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-# System deps for bcrypt/cryptography + curl for healthcheck
+# Install curl for healthcheck
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r /app/requirements.txt
+COPY --from=backend-build /app/wheels /wheels
+COPY --from=backend-build /app/requirements.txt .
+
+RUN pip install --no-cache-dir /wheels/*
 
 COPY backend /app/backend
 COPY --from=frontend-build /app/frontend/dist /app/static

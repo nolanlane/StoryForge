@@ -30,6 +30,7 @@ from .schemas import (
     TokenResponse,
     UserResponse,
 )
+from .services import story_service, prompt_service
 
 logger = logging.getLogger(__name__)
 
@@ -127,31 +128,12 @@ def me(current_user: User = Depends(get_current_user)) -> UserResponse:
 
 @app.get("/api/stories", response_model=list[StorySummary])
 def list_stories(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> list[StorySummary]:
-    rows = (
-        db.query(Story)
-        .filter(Story.user_id == current_user.id)
-        .order_by(Story.updated_at.desc())
-        .all()
-    )
-    out: list[StorySummary] = []
-    for s in rows:
-        out.append(
-            StorySummary(
-                id=s.id,
-                title=s.title,
-                genre=s.genre,
-                tone=s.tone,
-                createdAt=s.created_at,
-                updatedAt=s.updated_at,
-                sequelOfId=s.sequel_of_id,
-            )
-        )
-    return out
+    return story_service.list_stories_for_user(db, current_user.id)
 
 
 @app.get("/api/stories/{story_id}", response_model=StoryDetail)
 def get_story(story_id: str, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> StoryDetail:
-    s = db.query(Story).filter(Story.id == story_id, Story.user_id == current_user.id).first()
+    s = story_service.get_story_for_user(db, story_id, current_user.id)
     if not s:
         raise HTTPException(status_code=404, detail="Not found")
 
@@ -172,56 +154,21 @@ def get_story(story_id: str, current_user: User = Depends(get_current_user), db:
 
 @app.post("/api/stories", response_model=StorySummary)
 def upsert_story(req: StoryUpsert, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> StorySummary:
-    now = datetime.utcnow()
-    s = db.query(Story).filter(Story.id == req.id, Story.user_id == current_user.id).first()
-    if not s:
-        s = Story(
-            id=req.id,
-            user_id=current_user.id,
-            created_at=now,
-            updated_at=now,
-        )
-        db.add(s)
-
-    s.title = req.title or ""
-    s.genre = req.genre or ""
-    s.tone = req.tone or ""
-    s.updated_at = now
-    s.sequel_of_id = req.sequelOfId
-
-    s.config_json = json.dumps(req.config or {})
-    s.blueprint_json = json.dumps(req.blueprint or {})
-    s.story_content_json = json.dumps(req.storyContent or {})
-    s.story_images_json = json.dumps(req.storyImages or {})
-
-    db.commit()
-
-    return StorySummary(
-        id=s.id,
-        title=s.title,
-        genre=s.genre,
-        tone=s.tone,
-        createdAt=s.created_at,
-        updatedAt=s.updated_at,
-        sequelOfId=s.sequel_of_id,
-    )
+    return story_service.upsert_story_for_user(db, req, current_user.id)
 
 
 @app.delete("/api/stories/{story_id}")
 def delete_story(story_id: str, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
-    s = db.query(Story).filter(Story.id == story_id, Story.user_id == current_user.id).first()
-    if not s:
+    if not story_service.delete_story_for_user(db, story_id, current_user.id):
         raise HTTPException(status_code=404, detail="Not found")
-    db.delete(s)
-    db.commit()
     return {"ok": True}
 
 
 @app.post("/api/ai/text", response_model=AiTextResponse)
-def ai_text(req: AiTextRequest, current_user: User = Depends(get_current_user)) -> AiTextResponse:
+async def ai_text(req: AiTextRequest, current_user: User = Depends(get_current_user)) -> AiTextResponse:
     timeout_s = (req.timeoutMs / 1000.0) if req.timeoutMs else None
     try:
-        text = gemini_generate_text(
+        text = await gemini_generate_text(
             system_prompt=req.systemPrompt,
             user_prompt=req.userPrompt,
             json_mode=req.jsonMode,
@@ -235,10 +182,10 @@ def ai_text(req: AiTextRequest, current_user: User = Depends(get_current_user)) 
 
 
 @app.post("/api/ai/imagen", response_model=AiImagenResponse)
-def ai_imagen(req: AiImagenRequest, current_user: User = Depends(get_current_user)) -> AiImagenResponse:
+async def ai_imagen(req: AiImagenRequest, current_user: User = Depends(get_current_user)) -> AiImagenResponse:
     timeout_s = (req.timeoutMs / 1000.0) if req.timeoutMs else None
     try:
-        data_url = gemini_generate_image(prompt=req.prompt, timeout_s=timeout_s)
+        data_url = await gemini_generate_image(prompt=req.prompt, timeout_s=timeout_s)
         return AiImagenResponse(dataUrl=data_url)
     except Exception as e:
         logger.error("AI Image Generation failed (%s)", type(e).__name__)
@@ -246,36 +193,19 @@ def ai_imagen(req: AiImagenRequest, current_user: User = Depends(get_current_use
 
 
 @app.post("/api/ai/sequel", response_model=AiSequelResponse)
-def ai_sequel(req: AiSequelRequest, current_user: User = Depends(get_current_user)) -> AiSequelResponse:
-    banned_bits: list[str] = []
-    if req.bannedPhrases:
-        banned_bits.append("Avoid these phrases: " + "; ".join(req.bannedPhrases[:50]))
-    if req.bannedDescriptorTokens:
-        banned_bits.append("Avoid these descriptor tokens: " + ", ".join(req.bannedDescriptorTokens[:80]))
-    bans = ("\n".join(banned_bits) + "\n\n") if banned_bits else ""
-
-    system_prompt = f"""You're developing a sequel to an existing story. Same world, new chapter.
-
-Think about what made the original compelling and how to honor that while giving readers something fresh. The best sequels don't just repeat—they deepen.
-
-SEQUEL CRAFT:
-- Pick up threads from the ending, but the central conflict should be new
-- Returning characters should have grown or changed; show the weight of what happened
-- Introduce 1-2 new characters who challenge the existing dynamics
-- Raise the stakes, but keep them personal—not just "bigger explosions"
-
-STRUCTURE: {req.chapterCount} chapters. Same JSON schema as the original.
-
-{bans}Return valid JSON only."""
-
-    user_prompt = (
-        f"Original Story Bible:\n{json.dumps(req.sourceBlueprint)}\n\n"
-        f"How the first story ended:\n{req.endingExcerpt[-2500:]}\n\n"
-        "Create the sequel Story Bible."
+async def ai_sequel(req: AiSequelRequest, current_user: User = Depends(get_current_user)) -> AiSequelResponse:
+    system_prompt = prompt_service.construct_sequel_system_prompt(
+        chapter_count=req.chapterCount,
+        banned_phrases=req.bannedPhrases,
+        banned_descriptor_tokens=req.bannedDescriptorTokens,
+    )
+    user_prompt = prompt_service.construct_sequel_user_prompt(
+        source_blueprint=req.sourceBlueprint,
+        ending_excerpt=req.endingExcerpt,
     )
 
     try:
-        text = gemini_generate_text(
+        text = await gemini_generate_text(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             json_mode=True,
