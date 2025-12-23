@@ -20,19 +20,19 @@ export const SetupView = ({ config, setConfig, generateBlueprint, onRollDice, us
   };
 
   return (
-    <div className="max-w-2xl mx-auto py-12 px-4 animate-in slide-in-from-bottom-4">
-      <div className="text-center mb-10">
-        <h1 className="text-5xl font-serif font-bold text-slate-900 tracking-tight flex items-center justify-center gap-4">
-          <BookOpen className="w-10 h-10 text-purple-600" />
+    <main className="max-w-2xl mx-auto py-8 px-4 sm:py-12 sm:px-6 animate-in slide-in-from-bottom-4">
+      <header className="text-center mb-10">
+        <h1 className="text-4xl sm:text-5xl font-serif font-bold text-slate-900 tracking-tight flex items-center justify-center gap-4">
+          <BookOpen className="w-8 h-8 sm:w-10 sm:h-10 text-purple-600" />
           StoryForge
         </h1>
         <p className="text-slate-500 mt-3 text-lg">Hardened AI Narrative Engine</p>
-      </div>
+      </header>
 
-      <div className="bg-white rounded-2xl shadow-xl shadow-slate-200/50 border border-slate-100 p-8 space-y-6">
+      <section className="bg-white rounded-2xl shadow-xl shadow-slate-200/50 border border-slate-100 p-6 sm:p-8 space-y-6">
 
-        <div className="flex items-center justify-between gap-4">
-          <div className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2">
             <User className="w-3 h-3" />
             {userEmail ? `Signed in: ${userEmail}` : 'Not signed in'}
           </div>
@@ -41,13 +41,13 @@ export const SetupView = ({ config, setConfig, generateBlueprint, onRollDice, us
               <>
                 <button
                   onClick={onOpenLibrary}
-                  className="text-xs font-bold text-purple-600 hover:text-purple-700 hover:bg-purple-50 px-2 py-1 rounded transition-colors"
+                  className="text-xs font-bold text-purple-600 hover:text-purple-700 hover:bg-purple-50 px-3 py-1.5 rounded transition-colors focus:ring-2 focus:ring-purple-500 outline-none"
                 >
                   Library
                 </button>
                 <button
                   onClick={onLogout}
-                  className="text-xs font-bold text-slate-500 hover:text-slate-900 hover:bg-slate-50 px-2 py-1 rounded transition-colors"
+                  className="text-xs font-bold text-slate-500 hover:text-slate-900 hover:bg-slate-50 px-3 py-1.5 rounded transition-colors focus:ring-2 focus:ring-slate-200 outline-none"
                 >
                   Sign out
                 </button>
@@ -55,7 +55,7 @@ export const SetupView = ({ config, setConfig, generateBlueprint, onRollDice, us
             ) : (
               <button
                 onClick={onOpenAuth}
-                className="text-xs font-bold text-purple-600 hover:text-purple-700 hover:bg-purple-50 px-2 py-1 rounded transition-colors"
+                className="text-xs font-bold text-purple-600 hover:text-purple-700 hover:bg-purple-50 px-3 py-1.5 rounded transition-colors focus:ring-2 focus:ring-purple-500 outline-none"
               >
                 Sign in
               </button>
@@ -66,43 +66,46 @@ export const SetupView = ({ config, setConfig, generateBlueprint, onRollDice, us
         {/* Genre & Tone */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
           <div className="space-y-2">
-            <label htmlFor="setup-genre" className="text-xs font-bold text-slate-400 uppercase tracking-wider">Genre</label>
-            <select
-              id="setup-genre"
-              value={config.genre}
-              onChange={(e) => setConfig({...config, genre: e.target.value})}
-              className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-purple-500 outline-none transition-all font-medium"
-            >
-              <optgroup label="Classic">
-                <option>Science Fiction</option>
-                <option>High Fantasy</option>
-                <option>Mystery / Detective</option>
-                <option>Thriller / Suspense</option>
-                <option>Horror</option>
-                <option>Historical Fiction</option>
-                <option>Romance</option>
-                <option>Literary Fiction</option>
-                <option>Adventure</option>
-                <option>Western</option>
-              </optgroup>
-              <optgroup label="Speculative & Niche">
-                <option>Cyberpunk</option>
-                <option>Steampunk</option>
-                <option>Solarpunk</option>
-                <option>Space Opera</option>
-                <option>Urban Fantasy</option>
-                <option>Magical Realism</option>
-                <option>Dystopian / Post-Apocalyptic</option>
-                <option>Gothic Horror</option>
-                <option>Eldritch / Cosmic Horror</option>
-                <option>Weird West</option>
-                <option>Alt-History</option>
-                <option>Satire</option>
-              </optgroup>
-            </select>
+            <label htmlFor="setup-genre" className="text-xs font-bold text-slate-500 uppercase tracking-wider block">Genre</label>
+            <div className="relative">
+              <select
+                id="setup-genre"
+                value={config.genre}
+                onChange={(e) => setConfig({...config, genre: e.target.value})}
+                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-purple-500 outline-none transition-all font-medium appearance-none"
+              >
+                <optgroup label="Classic">
+                  <option>Science Fiction</option>
+                  <option>High Fantasy</option>
+                  <option>Mystery / Detective</option>
+                  <option>Thriller / Suspense</option>
+                  <option>Horror</option>
+                  <option>Historical Fiction</option>
+                  <option>Romance</option>
+                  <option>Literary Fiction</option>
+                  <option>Adventure</option>
+                  <option>Western</option>
+                </optgroup>
+                <optgroup label="Speculative & Niche">
+                  <option>Cyberpunk</option>
+                  <option>Steampunk</option>
+                  <option>Solarpunk</option>
+                  <option>Space Opera</option>
+                  <option>Urban Fantasy</option>
+                  <option>Magical Realism</option>
+                  <option>Dystopian / Post-Apocalyptic</option>
+                  <option>Gothic Horror</option>
+                  <option>Eldritch / Cosmic Horror</option>
+                  <option>Weird West</option>
+                  <option>Alt-History</option>
+                  <option>Satire</option>
+                </optgroup>
+              </select>
+              {/* Custom arrow could go here if appearance-none is used completely */}
+            </div>
           </div>
           <div className="space-y-2">
-            <label htmlFor="setup-tone" className="text-xs font-bold text-slate-400 uppercase tracking-wider">Tone</label>
+            <label htmlFor="setup-tone" className="text-xs font-bold text-slate-500 uppercase tracking-wider block">Tone</label>
             <select
               id="setup-tone"
               value={config.tone}
@@ -134,14 +137,15 @@ export const SetupView = ({ config, setConfig, generateBlueprint, onRollDice, us
         {/* Inputs */}
         <div className="space-y-2">
           <div className="flex justify-between items-end mb-2">
-            <label htmlFor="setup-concept" className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
+            <label htmlFor="setup-concept" className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2">
               <Sparkles className="w-3 h-3 text-purple-500" /> Story Concept
             </label>
             <button
               onClick={handleRollDice}
               disabled={isRolling}
-              className="text-xs font-bold text-purple-600 hover:text-purple-700 flex items-center gap-1 hover:bg-purple-50 px-2 py-1 rounded transition-colors disabled:opacity-50"
+              className="text-xs font-bold text-purple-600 hover:text-purple-700 flex items-center gap-1 hover:bg-purple-50 px-2 py-1 rounded transition-colors disabled:opacity-50 focus:ring-2 focus:ring-purple-500 outline-none"
               title="Generate a random concept based on Genre/Tone"
+              aria-label="Generate Random Concept"
             >
               {isRolling ? <Loader2 className="w-3 h-3 animate-spin" /> : <Dices className="w-3 h-3" />}
               {isRolling ? "Generating..." : "Roll Dice"}
@@ -159,12 +163,12 @@ export const SetupView = ({ config, setConfig, generateBlueprint, onRollDice, us
         {/* Advanced Toggles */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
            <div className="space-y-2">
-             <label htmlFor="setup-length" className="text-xs font-bold text-slate-400 uppercase tracking-wider">Length</label>
+             <label htmlFor="setup-length" className="text-xs font-bold text-slate-500 uppercase tracking-wider block">Length</label>
              <select
                 id="setup-length"
                 value={config.chapterCount}
                 onChange={(e) => setConfig({...config, chapterCount: parseInt(e.target.value)})}
-                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none"
+                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-purple-500 transition-all"
              >
                <option value="3">Short Story (3 Ch)</option>
                <option value="5">Novella (5 Ch)</option>
@@ -173,7 +177,7 @@ export const SetupView = ({ config, setConfig, generateBlueprint, onRollDice, us
              </select>
            </div>
            <div className="space-y-2">
-             <label htmlFor="setup-avoid" className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+             <label htmlFor="setup-avoid" className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1">
                 <Ban className="w-3 h-3 text-red-400" /> Avoid
              </label>
              <input
@@ -181,20 +185,20 @@ export const SetupView = ({ config, setConfig, generateBlueprint, onRollDice, us
                 value={config.avoid}
                 onChange={(e) => setConfig({...config, avoid: e.target.value})}
                 placeholder="Tropes to kill..."
-                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none"
+                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-purple-500 transition-all"
              />
            </div>
         </div>
 
         <button
           onClick={generateBlueprint}
-          className="w-full py-4 bg-slate-900 hover:bg-black text-white rounded-xl font-bold text-lg transition-all transform hover:scale-[1.02] active:scale-[0.98] shadow-xl flex items-center justify-center gap-3 mt-4"
+          className="w-full py-4 bg-slate-900 hover:bg-black text-white rounded-xl font-bold text-lg transition-all transform hover:scale-[1.02] active:scale-[0.98] shadow-xl flex items-center justify-center gap-3 mt-4 focus:ring-2 focus:ring-offset-2 focus:ring-slate-900 outline-none"
         >
           <Feather className="w-5 h-5" />
           Forge Narrative
         </button>
 
-      </div>
-    </div>
+      </section>
+    </main>
   );
 };
