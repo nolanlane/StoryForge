@@ -75,15 +75,6 @@ export default function App() {
   }, [apiFetch, requireAuth]);
 
   useEffect(() => {
-    // Load PDF Library
-    const script = document.createElement('script');
-    script.src = PDF_LIB_URL;
-    script.async = true;
-    document.body.appendChild(script);
-    return () => { document.body.removeChild(script); };
-  }, []);
-
-  useEffect(() => {
     const boot = async () => {
       if (!authToken) return;
       try {
@@ -660,14 +651,40 @@ Describe the illustration.`;
   };
 
   // --- Phase 3: The Publisher (PDF) ---
+  const loadPdfLibrary = () => {
+    return new Promise((resolve, reject) => {
+      if (window.jspdf) {
+        resolve(window.jspdf);
+        return;
+      }
+      const existingScript = document.querySelector(`script[src="${PDF_LIB_URL}"]`);
+      if (existingScript) {
+        // If script is already appending/loading, verify if loaded, otherwise wait
+        if (window.jspdf) resolve(window.jspdf);
+        else existingScript.addEventListener('load', () => resolve(window.jspdf));
+        return;
+      }
+
+      const script = document.createElement('script');
+      script.src = PDF_LIB_URL;
+      script.async = true;
+      script.onload = () => resolve(window.jspdf);
+      script.onerror = () => reject(new Error("Failed to load PDF library"));
+      document.body.appendChild(script);
+    });
+  };
+
   const exportPDF = async () => {
     setIsExporting(true);
-    setTimeout(async () => {
-      try {
-        if (!window.jspdf) throw new Error("PDF Engine not loaded");
-        const { jsPDF } = window.jspdf;
+    try {
+      await loadPdfLibrary();
+      if (!window.jspdf) throw new Error("PDF Engine not loaded");
+      const { jsPDF } = window.jspdf;
+
+      // Small delay to allow UI to update state before heavy PDF generation
+      await new Promise(resolve => setTimeout(resolve, 50));
         
-        const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a5' });
+      const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a5' });
         const width = doc.internal.pageSize.getWidth();
         const height = doc.internal.pageSize.getHeight();
         const margin = 15;
@@ -765,12 +782,11 @@ Describe the illustration.`;
             window.open(doc.output('bloburl'), '_blank');
         }
 
-      } catch (err) {
-        alert("PDF Error: " + err.message);
-      } finally {
-        setIsExporting(false);
-      }
-    }, 50);
+    } catch (err) {
+      alert("PDF Error: " + err.message);
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   return (
