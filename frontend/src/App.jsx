@@ -6,11 +6,17 @@ import { LibraryView } from './components/LibraryView';
 import { SetupView } from './components/SetupView';
 import { BlueprintView } from './components/BlueprintView';
 import { ReaderView } from './components/ReaderView';
+import { useStoryForgeApi } from './hooks/useStoryForgeApi';
+import { useStoryEngine } from './hooks/useStoryEngine';
 
-import { PDF_LIB_URL, STORAGE_KEYS, BANNED_PHRASES, BANNED_NAMES, BANNED_DESCRIPTOR_TOKENS } from './lib/constants';
-import { extractJSON, makeId, fetchSafe } from './lib/utils';
+import { PDF_LIB_URL, STORAGE_KEYS, BANNED_PHRASES, BANNED_DESCRIPTOR_TOKENS } from './lib/constants';
+import { extractJSON, makeId } from './lib/utils';
 
 export default function App() {
+  // --- Custom Hooks ---
+  const { authToken, setAuthToken, userEmail, setUserEmail, apiFetch, requireAuth, logout } = useStoryForgeApi();
+  const { callGeminiText, callImagen, stopGeneration, startGeneration, abortControllerRef } = useStoryEngine(apiFetch, requireAuth);
+
   // --- State ---
   const [view, setView] = useState('setup'); 
   const [loading, setLoading] = useState(false);
@@ -21,8 +27,6 @@ export default function App() {
   const [isChapterToolsWorking, setIsChapterToolsWorking] = useState(false);
   const [chapterToolsMessage, setChapterToolsMessage] = useState("");
 
-  const [authToken, setAuthToken] = useState(() => localStorage.getItem(STORAGE_KEYS.authToken) || "");
-  const [userEmail, setUserEmail] = useState("");
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
   const [isAuthWorking, setIsAuthWorking] = useState(false);
@@ -35,9 +39,6 @@ export default function App() {
   const [blueprintChatMessages, setBlueprintChatMessages] = useState([]);
   const [blueprintChatInput, setBlueprintChatInput] = useState("");
   const [isBlueprintChatWorking, setIsBlueprintChatWorking] = useState(false);
-
-  // Abort Controller Ref for stopping generation
-  const abortControllerRef = useRef(null);
 
   // Configuration
   const [config, setConfig] = useState({
@@ -59,68 +60,16 @@ export default function App() {
   const [storyImages, setStoryImages] = useState({}); 
   const [currentChapterGenIndex, setCurrentChapterGenIndex] = useState(0);
 
-  const apiFetch = useCallback(async (path, options = {}) => {
-    const { skipAuth, timeoutMs, ...fetchOptions } = options;
-    const headers = { ...(fetchOptions.headers || {}) };
-    if (!skipAuth && authToken) headers.Authorization = `Bearer ${authToken}`;
-    if (!headers['Content-Type'] && fetchOptions.body) headers['Content-Type'] = 'application/json';
-
-    let res;
-    try {
-      res = await fetchSafe(
-        path,
-        {
-          ...fetchOptions,
-          headers,
-          signal: fetchOptions.signal
-        },
-        timeoutMs || 90000
-      );
-    } catch (e) {
-      throw e;
-    }
-
-    if (!res.ok) {
-      if (res.status === 401 && !skipAuth) {
-        setAuthToken("");
-        localStorage.removeItem(STORAGE_KEYS.authToken);
-        setUserEmail("");
-        setView('auth');
-        throw new Error("Please sign in first.");
-      }
-      const errData = await res.json().catch(() => ({}));
-      let msg = `API Error: ${res.status}`;
-      if (Array.isArray(errData.detail)) {
-        msg = errData.detail
-          .map((d) => {
-            const loc = Array.isArray(d.loc) ? d.loc.filter((x) => x !== 'body').join('.') : '';
-            return loc ? `${loc}: ${d.msg}` : d.msg;
-          })
-          .join(' | ');
-      } else if (typeof errData.detail === 'string') {
-        msg = errData.detail;
-      } else if (errData.error?.message) {
-        msg = errData.error.message;
-      }
-      throw new Error(msg);
-    }
-
-    const ct = res.headers.get('content-type') || '';
-    if (ct.includes('application/json')) return res.json();
-    return res.text();
-  }, [authToken]);
-
-  const requireAuth = useCallback(() => {
-    if (!authToken) {
-      setError("Please sign in first.");
-      setView('auth');
-      return false;
-    }
-    return true;
-  }, [authToken]);
+  const handleAuthError = (msg) => {
+    setError(msg);
+    if (msg.includes("sign in")) setView('auth');
+  };
 
   const loadLibraryStories = useCallback(async () => {
-    if (!requireAuth()) return;
+    if (!requireAuth()) {
+       handleAuthError("Please sign in first.");
+       return;
+    }
     const stories = await apiFetch('/api/stories');
     setLibraryStories(Array.isArray(stories) ? stories : []);
   }, [apiFetch, requireAuth]);
@@ -141,16 +90,17 @@ export default function App() {
         const me = await apiFetch('/api/auth/me');
         setUserEmail(me.email || "");
       } catch {
-        setAuthToken("");
-        localStorage.removeItem(STORAGE_KEYS.authToken);
-        setUserEmail("");
+        logout();
       }
     };
     boot();
-  }, [authToken, apiFetch]);
+  }, [authToken, apiFetch, logout, setUserEmail]);
 
   const saveCurrentStoryToLibrary = useCallback(() => {
-    if (!requireAuth()) return;
+    if (!requireAuth()) {
+        handleAuthError("Please sign in first.");
+        return;
+    }
     if (!blueprint) {
       setError("Nothing to save yet.");
       return;
@@ -179,62 +129,16 @@ export default function App() {
   // Cleanup only on UNMOUNT (Empty dependency array)
   useEffect(() => {
     return () => {
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
+      stopGeneration();
     };
-  }, []);
-
-  // --- API: Text Generation ---
-  const callGeminiText = async (systemPrompt, userPrompt, jsonMode = false, customTimeout, generationConfig) => {
-    try {
-      if (!requireAuth()) return "";
-      const timeoutMs = customTimeout || 180000;
-      const result = await apiFetch('/api/ai/text', {
-        method: 'POST',
-        body: JSON.stringify({
-          systemPrompt,
-          userPrompt,
-          jsonMode,
-          timeoutMs,
-          generationConfig
-        }),
-        timeoutMs,
-        signal: abortControllerRef.current?.signal
-      });
-      return result?.text || "";
-    } catch (err) {
-      if (err.name === 'AbortError') console.log("Generation aborted by user.");
-      else throw err;
-    }
-  };
-
-  // --- API: Image Generation ---
-  const callImagen = async (prompt) => {
-    try {
-      if (!requireAuth()) return null;
-      const timeoutMs = 45000;
-      const result = await apiFetch('/api/ai/imagen', {
-        method: 'POST',
-        body: JSON.stringify({ prompt, timeoutMs }),
-        timeoutMs,
-        signal: abortControllerRef.current?.signal
-      });
-      return result?.dataUrl || null;
-    } catch (err) {
-      // Fail silently on image generation to not block the text story
-      if (err.name !== 'AbortError') {
-        console.warn("Image generation failed:", err);
-      }
-      return null;
-    }
-  };
+  }, [stopGeneration]);
 
   // --- Feature: AI Random Concept (Roll Dice) ---
   const generateRandomPrompt = async (genre, tone) => {
-    if (!requireAuth()) return;
-    const seed = Math.floor(Math.random() * 1000000);
-
+    if (!requireAuth()) {
+        handleAuthError("Please sign in first.");
+        return;
+    }
     const systemPrompt = `Write a complete story concept in exactly 2-3 sentences. End with a period.
 
 Be evocative, not explanatory. Spark curiosity. Don't summarize—intrigue.
@@ -266,10 +170,11 @@ Write the concept now. Complete sentences only.`;
 
   // --- Phase 1: The Architect (Blueprint) ---
   const generateBlueprint = async () => {
-    if (!requireAuth()) return;
-    // Reset Abort Controller
-    if (abortControllerRef.current) abortControllerRef.current.abort();
-    abortControllerRef.current = new AbortController();
+    if (!requireAuth()) {
+        handleAuthError("Please sign in first.");
+        return;
+    }
+    startGeneration(); // Reset/Start signal
 
     setLoading(true);
     setLoadingMessage("Building story DNA...");
@@ -283,7 +188,7 @@ CRAFT NOTES:
 - Characters should feel lived-in. Give them contradictions, habits, something they're wrong about.
 - Chapter summaries are scene beats: what literally happens, who's in the room, what changes.
 - The central conflict should be something characters can push against—not abstract.
-- Names should feel organic to the world. Skip: ${BANNED_NAMES.slice(0, 8).join(", ")}.
+- Names should feel organic to the world.
 
 STRUCTURE: ${config.chapterCount} chapters with a clear arc (setup → complications → crisis → resolution).
 
@@ -352,10 +257,11 @@ Avoid: <avoid>${config.avoid}</avoid>`;
 
   // --- Phase 2: The Drafter (Writing Loop) ---
   const startDrafting = async () => {
-    if (!requireAuth()) return;
-    // Reset Abort Controller
-    if (abortControllerRef.current) abortControllerRef.current.abort();
-    abortControllerRef.current = new AbortController();
+    if (!requireAuth()) {
+        handleAuthError("Please sign in first.");
+        return;
+    }
+    const signal = startGeneration();
 
     setView('drafting');
     setCurrentChapterGenIndex(0);
@@ -363,15 +269,13 @@ Avoid: <avoid>${config.avoid}</avoid>`;
     setStoryImages(prev => ({ cover: prev.cover }));
     
     // Start recursive generation
-    generateChapter(0, {}, abortControllerRef.current.signal);
+    generateChapter(0, {}, signal);
   };
 
-  const stopGeneration = () => {
-    if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-        setLoading(false);
-        setView('setup'); // Return to setup on cancel
-    }
+  const handleStopGeneration = () => {
+      stopGeneration();
+      setLoading(false);
+      setView('setup'); // Return to setup on cancel
   };
 
   const withChapterTools = async (message, fn) => {
@@ -419,7 +323,10 @@ Avoid: <avoid>${config.avoid}</avoid>`;
   };
 
   const restoreChapterVersion = async (index, versionId) => {
-    if (!requireAuth()) return;
+    if (!requireAuth()) {
+        handleAuthError("Please sign in first.");
+        return;
+    }
     const versions = getChapterHistory(index);
     const v = versions.find(x => x?.id === versionId);
     if (!v?.text) return;
@@ -432,7 +339,10 @@ Avoid: <avoid>${config.avoid}</avoid>`;
   };
 
   const regenerateChapterText = async (index) => {
-    if (!requireAuth()) return;
+    if (!requireAuth()) {
+        handleAuthError("Please sign in first.");
+        return;
+    }
     if (!blueprint?.chapters?.length) return;
     const chap = blueprint.chapters[index];
     if (!chap) return;
@@ -506,7 +416,10 @@ Length: 900–1400 words. Tight, no filler.`;
   };
 
   const rewriteChapter = async (index, instruction) => {
-    if (!requireAuth()) return;
+    if (!requireAuth()) {
+        handleAuthError("Please sign in first.");
+        return;
+    }
     if (!blueprint?.chapters?.length) return;
     const chap = blueprint.chapters[index];
     if (!chap) return;
@@ -567,7 +480,10 @@ Return the revised chapter now.`;
   };
 
   const regenerateIllustration = async (index) => {
-    if (!requireAuth()) return;
+    if (!requireAuth()) {
+        handleAuthError("Please sign in first.");
+        return;
+    }
     if (!blueprint) return;
     const text = storyContent[index] || "";
     if (!String(text).trim()) {
@@ -880,7 +796,7 @@ Describe the illustration.`;
                 view={view} 
                 blueprint={blueprint} 
                 currentChapterGenIndex={currentChapterGenIndex} 
-                onAbort={stopGeneration}
+                onAbort={handleStopGeneration}
             />
         ) : (
             <>
@@ -906,10 +822,9 @@ Describe the illustration.`;
                             body: JSON.stringify({ email: emailTrim, password: pw }),
                             skipAuth: true
                           });
-                          const token = res.access_token;
-                          setAuthToken(token);
-                          localStorage.setItem(STORAGE_KEYS.authToken, token);
-                          const me = await fetch('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json());
+                          setAuthToken(res.access_token);
+                          localStorage.setItem(STORAGE_KEYS.authToken, res.access_token);
+                          const me = await fetch('/api/auth/me', { headers: { Authorization: `Bearer ${res.access_token}` } }).then(r => r.json());
                           setUserEmail(me.email || "");
                           setAuthPassword("");
                           setView('setup');
@@ -934,10 +849,9 @@ Describe the illustration.`;
                             body: JSON.stringify({ email: emailTrim, password: pw }),
                             skipAuth: true
                           });
-                          const token = res.access_token;
-                          setAuthToken(token);
-                          localStorage.setItem(STORAGE_KEYS.authToken, token);
-                          const me = await fetch('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json());
+                          setAuthToken(res.access_token);
+                          localStorage.setItem(STORAGE_KEYS.authToken, res.access_token);
+                          const me = await fetch('/api/auth/me', { headers: { Authorization: `Bearer ${res.access_token}` } }).then(r => r.json());
                           setUserEmail(me.email || "");
                           setAuthPassword("");
                           setView('setup');
@@ -957,7 +871,10 @@ Describe the illustration.`;
                       isWorking={isLibraryWorking}
                       onBack={() => setView('setup')}
                       onOpen={async (id) => {
-                        if (!requireAuth()) return;
+                        if (!requireAuth()) {
+                            handleAuthError("Please sign in first.");
+                            return;
+                        }
                         setIsLibraryWorking(true);
                         setError(null);
                         try {
@@ -976,7 +893,10 @@ Describe the illustration.`;
                         }
                       }}
                       onDelete={async (id) => {
-                        if (!requireAuth()) return;
+                        if (!requireAuth()) {
+                            handleAuthError("Please sign in first.");
+                            return;
+                        }
                         setIsLibraryWorking(true);
                         setError(null);
                         try {
@@ -990,7 +910,10 @@ Describe the illustration.`;
                         }
                       }}
                       onSequel={async (id) => {
-                        if (!requireAuth()) return;
+                        if (!requireAuth()) {
+                            handleAuthError("Please sign in first.");
+                            return;
+                        }
                         setIsLibraryWorking(true);
                         setError(null);
                         try {
@@ -1054,21 +977,17 @@ Describe the illustration.`;
                         userEmail={userEmail}
                         onOpenAuth={() => setView('auth')}
                         onOpenLibrary={() => {
-                          if (!requireAuth()) return;
+                          if (!requireAuth()) {
+                              handleAuthError("Please sign in first.");
+                              return;
+                          }
                           setIsLibraryWorking(true);
                           loadLibraryStories()
                             .then(() => setView('library'))
                             .catch((e) => setError(`Load library failed: ${e.message}`))
                             .finally(() => setIsLibraryWorking(false));
                         }}
-                        onLogout={() => {
-                          setAuthToken("");
-                          localStorage.removeItem(STORAGE_KEYS.authToken);
-                          setLibraryStories([]);
-                          setActiveStoryId(null);
-                          setPendingSequelOfId(null);
-                          setUserEmail("");
-                        }}
+                        onLogout={logout}
                     />
                 )}
                 {view === 'blueprint' && (
@@ -1079,7 +998,7 @@ Describe the illustration.`;
                         storyImages={storyImages} 
                         setView={setView} 
                         startDrafting={startDrafting} 
-                        onAbort={stopGeneration}
+                        onAbort={handleStopGeneration}
                         chatMessages={blueprintChatMessages}
                         chatInput={blueprintChatInput}
                         setChatInput={setBlueprintChatInput}
@@ -1137,7 +1056,7 @@ Return only the updated JSON. No commentary, no markdown fences.`;
                         blueprint={blueprint} 
                         storyImages={storyImages} 
                         storyContent={storyContent} 
-                        onAbort={stopGeneration}
+                        onAbort={handleStopGeneration}
                         isChapterToolsWorking={isChapterToolsWorking}
                         onRegenerateChapterText={regenerateChapterText}
                         onRewriteChapter={rewriteChapter}

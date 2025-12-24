@@ -2,7 +2,6 @@ import json
 import logging
 import os
 from contextlib import asynccontextmanager
-from datetime import datetime
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse, RedirectResponse
@@ -14,7 +13,7 @@ from .auth import create_access_token, get_current_user, hash_password, verify_p
 from .config import settings
 from .db import Base, engine, get_db
 from .gemini_client import gemini_generate_image, gemini_generate_text
-from .models import Story, User
+from .models import User
 from .schemas import (
     AiImagenRequest,
     AiImagenResponse,
@@ -34,6 +33,7 @@ from .services import story_service, prompt_service
 
 logger = logging.getLogger(__name__)
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     if settings.db_url.startswith("sqlite:////data/"):
@@ -41,12 +41,14 @@ async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
     yield
 
+
 app = FastAPI(lifespan=lifespan)
 
 
 def _validate_password(password: str) -> None:
     if len(password.encode("utf-8")) > 72:
         raise HTTPException(status_code=422, detail="Password too long (max 72 bytes)")
+
 
 origins = [o.strip() for o in (settings.cors_origins or "*").split(",") if o.strip()]
 allow_creds = origins != ["*"]
@@ -127,12 +129,18 @@ def me(current_user: User = Depends(get_current_user)) -> UserResponse:
 
 
 @app.get("/api/stories", response_model=list[StorySummary])
-def list_stories(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> list[StorySummary]:
+def list_stories(
+    current_user: User = Depends(get_current_user), db: Session = Depends(get_db)
+) -> list[StorySummary]:
     return story_service.list_stories_for_user(db, current_user.id)
 
 
 @app.get("/api/stories/{story_id}", response_model=StoryDetail)
-def get_story(story_id: str, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> StoryDetail:
+def get_story(
+    story_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> StoryDetail:
     s = story_service.get_story_for_user(db, story_id, current_user.id)
     if not s:
         raise HTTPException(status_code=404, detail="Not found")
@@ -153,19 +161,29 @@ def get_story(story_id: str, current_user: User = Depends(get_current_user), db:
 
 
 @app.post("/api/stories", response_model=StorySummary)
-def upsert_story(req: StoryUpsert, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> StorySummary:
+def upsert_story(
+    req: StoryUpsert,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> StorySummary:
     return story_service.upsert_story_for_user(db, req, current_user.id)
 
 
 @app.delete("/api/stories/{story_id}")
-def delete_story(story_id: str, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
+def delete_story(
+    story_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
     if not story_service.delete_story_for_user(db, story_id, current_user.id):
         raise HTTPException(status_code=404, detail="Not found")
     return {"ok": True}
 
 
 @app.post("/api/ai/text", response_model=AiTextResponse)
-async def ai_text(req: AiTextRequest, current_user: User = Depends(get_current_user)) -> AiTextResponse:
+async def ai_text(
+    req: AiTextRequest, current_user: User = Depends(get_current_user)
+) -> AiTextResponse:
     timeout_s = (req.timeoutMs / 1000.0) if req.timeoutMs else None
     try:
         text = await gemini_generate_text(
@@ -182,7 +200,9 @@ async def ai_text(req: AiTextRequest, current_user: User = Depends(get_current_u
 
 
 @app.post("/api/ai/imagen", response_model=AiImagenResponse)
-async def ai_imagen(req: AiImagenRequest, current_user: User = Depends(get_current_user)) -> AiImagenResponse:
+async def ai_imagen(
+    req: AiImagenRequest, current_user: User = Depends(get_current_user)
+) -> AiImagenResponse:
     timeout_s = (req.timeoutMs / 1000.0) if req.timeoutMs else None
     try:
         data_url = await gemini_generate_image(prompt=req.prompt, timeout_s=timeout_s)
@@ -193,7 +213,9 @@ async def ai_imagen(req: AiImagenRequest, current_user: User = Depends(get_curre
 
 
 @app.post("/api/ai/sequel", response_model=AiSequelResponse)
-async def ai_sequel(req: AiSequelRequest, current_user: User = Depends(get_current_user)) -> AiSequelResponse:
+async def ai_sequel(
+    req: AiSequelRequest, current_user: User = Depends(get_current_user)
+) -> AiSequelResponse:
     system_prompt = prompt_service.construct_sequel_system_prompt(
         chapter_count=req.chapterCount,
         banned_phrases=req.bannedPhrases,
@@ -210,7 +232,12 @@ async def ai_sequel(req: AiSequelRequest, current_user: User = Depends(get_curre
             user_prompt=user_prompt,
             json_mode=True,
             timeout_s=None,
-            generation_config={"temperature": 0.8, "topP": 0.95, "topK": 64, "maxOutputTokens": 8192},
+            generation_config={
+                "temperature": 0.8,
+                "topP": 0.95,
+                "topK": 64,
+                "maxOutputTokens": 8192,
+            },
         )
         blueprint = json.loads(_extract_json(text))
         return AiSequelResponse(blueprint=blueprint)
@@ -230,12 +257,18 @@ def _extract_json(text: str) -> str:
 
 @app.get("/{full_path:path}")
 def spa_fallback(full_path: str) -> FileResponse:
-    if full_path.startswith("api/") or full_path.startswith("health") or full_path.startswith("assets/"):
+    if (
+        full_path.startswith("api/")
+        or full_path.startswith("health")
+        or full_path.startswith("assets/")
+    ):
         raise HTTPException(status_code=404, detail="Not found")
 
     index_path = os.path.join(STATIC_DIR, "index.html")
     if not os.path.isfile(index_path):
         if DEV_FRONTEND_URL:
-            return RedirectResponse(f"{DEV_FRONTEND_URL.rstrip('/')}/{full_path}", status_code=307)
+            return RedirectResponse(
+                f"{DEV_FRONTEND_URL.rstrip('/')}/{full_path}", status_code=307
+            )
         raise HTTPException(status_code=404, detail="Frontend not built")
     return FileResponse(index_path)

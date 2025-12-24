@@ -8,6 +8,7 @@ from ..schemas import StoryUpsert, StorySummary
 
 logger = logging.getLogger(__name__)
 
+
 def list_stories_for_user(db: Session, user_id: int) -> list[StorySummary]:
     rows = (
         db.query(Story)
@@ -30,8 +31,12 @@ def list_stories_for_user(db: Session, user_id: int) -> list[StorySummary]:
         )
     return out
 
+
 def get_story_for_user(db: Session, story_id: str, user_id: int) -> Story | None:
-    return db.query(Story).filter(Story.id == story_id, Story.user_id == user_id).first()
+    return (
+        db.query(Story).filter(Story.id == story_id, Story.user_id == user_id).first()
+    )
+
 
 def upsert_story_for_user(db: Session, req: StoryUpsert, user_id: int) -> StorySummary:
     now = datetime.utcnow()
@@ -67,6 +72,7 @@ def upsert_story_for_user(db: Session, req: StoryUpsert, user_id: int) -> StoryS
         updatedAt=s.updated_at,
         sequelOfId=s.sequel_of_id,
     )
+
 
 def delete_story_for_user(db: Session, story_id: str, user_id: int) -> bool:
     s = db.query(Story).filter(Story.id == story_id, Story.user_id == user_id).first()
