@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { BookOpen, Save, Download, Loader2, RefreshCcw, Wand2, Image as ImageIcon, Menu, X } from 'lucide-react';
 
 const renderMarkdown = (text) => {
@@ -93,12 +93,13 @@ export const ReaderView = ({ config, setView, exportPDF, isExporting, blueprint,
   const [selectedVersionId, setSelectedVersionId] = useState('');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  useEffect(() => {
-    setSelectedVersionId('');
-    setMobileMenuOpen(false); // Close menu on chapter change
-  }, [activeChapter]);
-
   const chapters = Array.isArray(blueprint?.chapters) ? blueprint.chapters : [];
+
+  const handleChapterChange = (index) => {
+    setActiveChapter(index);
+    setSelectedVersionId('');
+    setMobileMenuOpen(false);
+  };
 
   if (!chapters.length) {
     return (
@@ -165,7 +166,7 @@ export const ReaderView = ({ config, setView, exportPDF, isExporting, blueprint,
                 {chapters.map((chap, i) => (
                     <button
                         key={i}
-                        onClick={() => setActiveChapter(i)}
+                        onClick={() => handleChapterChange(i)}
                         className={`w-full text-left px-3 py-3 md:py-2 rounded-lg text-sm font-medium transition-all ${
                             activeChapter === i ? 'bg-white shadow-sm text-purple-700 ring-1 ring-slate-200' : 'text-slate-600 hover:bg-white/50'
                         }`}
@@ -302,7 +303,7 @@ export const ReaderView = ({ config, setView, exportPDF, isExporting, blueprint,
                   <nav className="mt-16 pt-8 border-t border-slate-100 flex justify-between text-sm font-bold text-slate-500" aria-label="Chapter Navigation">
                       <button
                           disabled={activeChapter === 0}
-                          onClick={() => setActiveChapter(c => c-1)}
+                          onClick={() => handleChapterChange(activeChapter - 1)}
                           className="hover:text-purple-600 disabled:opacity-20 flex items-center gap-1 transition-colors px-2 py-1"
                           aria-label="Previous Chapter"
                       >
@@ -310,7 +311,7 @@ export const ReaderView = ({ config, setView, exportPDF, isExporting, blueprint,
                       </button>
                       <button
                           disabled={activeChapter === chapters.length - 1}
-                          onClick={() => setActiveChapter(c => c+1)}
+                          onClick={() => handleChapterChange(activeChapter + 1)}
                           className="hover:text-purple-600 disabled:opacity-20 flex items-center gap-1 transition-colors px-2 py-1"
                           aria-label="Next Chapter"
                       >

@@ -12,20 +12,15 @@ export function useStoryForgeApi() {
     if (!skipAuth && authToken) headers.Authorization = `Bearer ${authToken}`;
     if (!headers['Content-Type'] && fetchOptions.body) headers['Content-Type'] = 'application/json';
 
-    let res;
-    try {
-      res = await fetchSafe(
-        path,
-        {
-          ...fetchOptions,
-          headers,
-          signal: fetchOptions.signal
-        },
-        timeoutMs || 90000
-      );
-    } catch (e) {
-      throw e;
-    }
+    const res = await fetchSafe(
+      path,
+      {
+        ...fetchOptions,
+        headers,
+        signal: fetchOptions.signal
+      },
+      timeoutMs || 90000
+    );
 
     if (!res.ok) {
       if (res.status === 401 && !skipAuth) {
@@ -57,10 +52,7 @@ export function useStoryForgeApi() {
   }, [authToken]);
 
   const requireAuth = useCallback(() => {
-    if (!authToken) {
-      return false;
-    }
-    return true;
+    return !!authToken;
   }, [authToken]);
 
   const logout = useCallback(() => {

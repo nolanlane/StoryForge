@@ -1,11 +1,16 @@
 import json
 
-def construct_sequel_system_prompt(chapter_count: int, banned_phrases: list[str], banned_descriptor_tokens: list[str]) -> str:
+
+def construct_sequel_system_prompt(
+    chapter_count: int, banned_phrases: list[str], banned_descriptor_tokens: list[str]
+) -> str:
     banned_bits: list[str] = []
     if banned_phrases:
         banned_bits.append("Avoid these phrases: " + "; ".join(banned_phrases[:50]))
     if banned_descriptor_tokens:
-        banned_bits.append("Avoid these descriptor tokens: " + ", ".join(banned_descriptor_tokens[:80]))
+        banned_bits.append(
+            "Avoid these descriptor tokens: " + ", ".join(banned_descriptor_tokens[:80])
+        )
     bans = ("\n".join(banned_bits) + "\n\n") if banned_bits else ""
 
     return f"""You're developing a sequel to an existing story. Same world, new chapter.
@@ -21,6 +26,7 @@ SEQUEL CRAFT:
 STRUCTURE: {chapter_count} chapters. Same JSON schema as the original.
 
 {bans}Return valid JSON only."""
+
 
 def construct_sequel_user_prompt(source_blueprint: dict, ending_excerpt: str) -> str:
     return (

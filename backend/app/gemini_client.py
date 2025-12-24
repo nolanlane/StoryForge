@@ -1,7 +1,6 @@
 import httpx
 import logging
 import asyncio
-from typing import Callable, Awaitable, Any
 
 from .config import settings
 
@@ -115,15 +114,18 @@ async def _execute_with_retry(
 ) -> dict:
     effective_timeout_s = float(timeout_s) if timeout_s else 180.0
     timeout = httpx.Timeout(effective_timeout_s)
-    
+
     for attempt in range(max_retries):
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:
                 res = await client.post(url, json=payload, headers=headers)
                 logger.info(f"[Gemini] Response status: {res.status_code}")
 
-                if res.status_code in RETRYABLE_STATUS_CODES and attempt < max_retries - 1:
-                    wait_time = 2 ** attempt
+                if (
+                    res.status_code in RETRYABLE_STATUS_CODES
+                    and attempt < max_retries - 1
+                ):
+                    wait_time = 2**attempt
                     logger.warning(
                         "[Gemini] Got %s from model=%s, retrying in %ss (attempt %s/%s) %s",
                         res.status_code,
@@ -160,8 +162,11 @@ async def _execute_with_retry(
                     detail,
                 )
 
-            if e.response.status_code in RETRYABLE_STATUS_CODES and attempt < max_retries - 1:
-                wait_time = 2 ** attempt
+            if (
+                e.response.status_code in RETRYABLE_STATUS_CODES
+                and attempt < max_retries - 1
+            ):
+                wait_time = 2**attempt
                 logger.warning(
                     "[Gemini] Retrying model=%s in %ss (attempt %s/%s)",
                     log_model_name,
@@ -180,7 +185,7 @@ async def _execute_with_retry(
                 str(e)[:300],
             )
             if attempt < max_retries - 1:
-                wait_time = 2 ** attempt
+                wait_time = 2**attempt
                 logger.warning(
                     "[Gemini] Retrying after network error in %ss (attempt %s/%s)",
                     wait_time,
@@ -219,7 +224,9 @@ async def _gemini_generate_text_with_model(
         "generationConfig": cfg,
     }
 
-    effective_timeout_s = float(timeout_s) if timeout_s else float(settings.gemini_text_timeout_s)
+    effective_timeout_s = (
+        float(timeout_s) if timeout_s else float(settings.gemini_text_timeout_s)
+    )
     logger.info(
         "[Gemini] Calling text API model=%s timeout_s=%s json_mode=%s",
         model,
@@ -247,7 +254,9 @@ async def _gemini_generate_text_with_model(
         prompt_fb = data.get("promptFeedback") if isinstance(data, dict) else None
         block_reason = None
         if isinstance(prompt_fb, dict):
-            block_reason = prompt_fb.get("blockReason") or prompt_fb.get("blockReasonMessage")
+            block_reason = prompt_fb.get("blockReason") or prompt_fb.get(
+                "blockReasonMessage"
+            )
         logger.error(
             "[Gemini] No candidates returned model=%s blockReason=%s",
             model,
@@ -275,7 +284,14 @@ async def _gemini_generate_text_with_model(
     return text
 
 
-async def gemini_generate_text(*, system_prompt: str, user_prompt: str, json_mode: bool, timeout_s: float | None, generation_config: dict | None) -> str:
+async def gemini_generate_text(
+    *,
+    system_prompt: str,
+    user_prompt: str,
+    json_mode: bool,
+    timeout_s: float | None,
+    generation_config: dict | None,
+) -> str:
     primary = settings.gemini_text_model
     fallback = getattr(settings, "gemini_text_fallback_model", "") or ""
     models: list[str] = [primary]
@@ -294,7 +310,11 @@ async def gemini_generate_text(*, system_prompt: str, user_prompt: str, json_mod
                 generation_config=generation_config,
             )
         except httpx.HTTPStatusError as e:
-            if e.response is not None and e.response.status_code == 404 and i < len(models) - 1:
+            if (
+                e.response is not None
+                and e.response.status_code == 404
+                and i < len(models) - 1
+            ):
                 logger.warning(
                     "[Gemini] Falling back from model=%s to model=%s due to 404",
                     model,
@@ -330,9 +350,15 @@ async def gemini_generate_image(*, prompt: str, timeout_s: float | None) -> str 
         logger.error("[Imagen] API key is not set!")
         raise ValueError("STORYFORGE_GEMINI_API_KEY is not configured")
 
-    effective_timeout_s = float(timeout_s) if timeout_s else float(settings.imagen_timeout_s)
-    logger.info("[Imagen] Calling predict model=%s timeout_s=%s", settings.imagen_model, effective_timeout_s)
-    
+    effective_timeout_s = (
+        float(timeout_s) if timeout_s else float(settings.imagen_timeout_s)
+    )
+    logger.info(
+        "[Imagen] Calling predict model=%s timeout_s=%s",
+        settings.imagen_model,
+        effective_timeout_s,
+    )
+
     headers = {"x-goog-api-key": settings.gemini_api_key}
 
     try:
@@ -346,7 +372,9 @@ async def gemini_generate_image(*, prompt: str, timeout_s: float | None) -> str 
 
         base64_data = (data.get("predictions", [{}])[0] or {}).get("bytesBase64Encoded")
         if not base64_data:
-            logger.error("[Imagen] No image bytes returned model=%s", settings.imagen_model)
+            logger.error(
+                "[Imagen] No image bytes returned model=%s", settings.imagen_model
+            )
             return None
         return f"data:image/png;base64,{base64_data}"
     except Exception as e:
