@@ -62,7 +62,7 @@ export function useStoryForgeApi() {
   }, []);
 
   const storyDoctor = useCallback((blueprint) => {
-    return apiFetch('/api/story-doctor', {
+    return apiFetch('/api/ai/analyze_blueprint', {
       method: 'POST',
       body: JSON.stringify({ blueprint })
     });

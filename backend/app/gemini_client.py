@@ -97,6 +97,9 @@ def _text_url_for_model(model: str) -> str:
 
 
 def _imagen_url() -> str:
+    if "gemini" in settings.imagen_model.lower():
+        # Gemini models use the generateContent endpoint even for images
+        return f"https://generativelanguage.googleapis.com/v1beta/models/{settings.imagen_model}:generateContent"
     return f"https://generativelanguage.googleapis.com/v1beta/models/{settings.imagen_model}:predict"
 
 
@@ -341,10 +344,23 @@ async def gemini_generate_text(
 
 
 async def gemini_generate_image(*, prompt: str, timeout_s: float | None) -> str | None:
-    payload = {
-        "instances": [{"prompt": clean_image_prompt(prompt)}],
-        "parameters": {"sampleCount": 1},
-    }
+    is_gemini_model = "gemini" in settings.imagen_model.lower()
+    cleaned_prompt = clean_image_prompt(prompt)
+
+    if is_gemini_model:
+        # Gemini-style payload
+        payload = {
+            "contents": [{"parts": [{"text": cleaned_prompt}]}],
+            "generationConfig": {
+                "responseMimeType": "image/jpeg"
+            }
+        }
+    else:
+        # Legacy Imagen-style payload
+        payload = {
+            "instances": [{"prompt": cleaned_prompt}],
+            "parameters": {"sampleCount": 1},
+        }
 
     if not settings.gemini_api_key:
         logger.error("[Imagen] API key is not set!")
@@ -354,9 +370,10 @@ async def gemini_generate_image(*, prompt: str, timeout_s: float | None) -> str 
         float(timeout_s) if timeout_s else float(settings.imagen_timeout_s)
     )
     logger.info(
-        "[Imagen] Calling predict model=%s timeout_s=%s",
+        "[Imagen] Calling predict/generate model=%s timeout_s=%s gemini_mode=%s",
         settings.imagen_model,
         effective_timeout_s,
+        is_gemini_model,
     )
 
     headers = {"x-goog-api-key": settings.gemini_api_key}
@@ -370,13 +387,36 @@ async def gemini_generate_image(*, prompt: str, timeout_s: float | None) -> str 
             log_model_name=settings.imagen_model,
         )
 
-        base64_data = (data.get("predictions", [{}])[0] or {}).get("bytesBase64Encoded")
-        if not base64_data:
-            logger.error(
-                "[Imagen] No image bytes returned model=%s", settings.imagen_model
-            )
+        if is_gemini_model:
+            # Parse Gemini response for inline image data
+            # Typically candidates[0].content.parts[0].inlineData
+            candidates = data.get("candidates", [])
+            if not candidates:
+                logger.error("[Imagen] No candidates returned from Gemini model")
+                return None
+
+            # Look for inlineData in parts
+            parts = candidates[0].get("content", {}).get("parts", [])
+            for part in parts:
+                inline_data = part.get("inlineData")
+                if inline_data:
+                    mime_type = inline_data.get("mimeType", "image/png")
+                    b64 = inline_data.get("data")
+                    if b64:
+                        return f"data:{mime_type};base64,{b64}"
+
+            logger.error("[Imagen] No inline image data found in Gemini response")
             return None
-        return f"data:image/png;base64,{base64_data}"
+
+        else:
+            # Parse Imagen response
+            base64_data = (data.get("predictions", [{}])[0] or {}).get("bytesBase64Encoded")
+            if not base64_data:
+                logger.error(
+                    "[Imagen] No image bytes returned model=%s", settings.imagen_model
+                )
+                return None
+            return f"data:image/png;base64,{base64_data}"
     except Exception as e:
         logger.error("[Imagen] Failed to generate image: %s", str(e))
         return None

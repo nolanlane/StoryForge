@@ -45,6 +45,29 @@ export function useStoryEngine(apiFetch, requireAuth) {
     }
   }, [apiFetch, requireAuth]);
 
+  const callAiChapter = useCallback(async (blueprint, chapterIndex, previousChapterText, config, customTimeout) => {
+    try {
+      if (!requireAuth()) return "";
+      const timeoutMs = customTimeout || 180000;
+      const result = await apiFetch('/api/ai/chapter', {
+        method: 'POST',
+        body: JSON.stringify({
+          blueprint,
+          chapterIndex,
+          previousChapterText,
+          config,
+          timeoutMs
+        }),
+        timeoutMs,
+        signal: abortControllerRef.current?.signal
+      });
+      return result?.text || "";
+    } catch (err) {
+      if (err.name === 'AbortError') console.log("Generation aborted by user.");
+      else throw err;
+    }
+  }, [apiFetch, requireAuth]);
+
   const stopGeneration = useCallback(() => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
@@ -60,6 +83,7 @@ export function useStoryEngine(apiFetch, requireAuth) {
   return {
     callGeminiText,
     callImagen,
+    callAiChapter,
     stopGeneration,
     startGeneration,
     abortControllerRef
