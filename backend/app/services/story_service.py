@@ -1,4 +1,5 @@
 from sqlalchemy.orm import Session
+from sqlalchemy.future import select
 from datetime import datetime
 import json
 import logging
@@ -9,13 +10,13 @@ from ..schemas import StoryUpsert, StorySummary
 logger = logging.getLogger(__name__)
 
 
-def list_stories_for_user(db: Session, user_id: int) -> list[StorySummary]:
-    rows = (
-        db.query(Story)
+async def list_stories_for_user(db: Session, user_id: int) -> list[StorySummary]:
+    result = await db.execute(
+        select(Story)
         .filter(Story.user_id == user_id)
         .order_by(Story.updated_at.desc())
-        .all()
     )
+    rows = result.scalars().all()
     out: list[StorySummary] = []
     for s in rows:
         out.append(
@@ -32,15 +33,21 @@ def list_stories_for_user(db: Session, user_id: int) -> list[StorySummary]:
     return out
 
 
-def get_story_for_user(db: Session, story_id: str, user_id: int) -> Story | None:
-    return (
-        db.query(Story).filter(Story.id == story_id, Story.user_id == user_id).first()
+async def get_story_for_user(db: Session, story_id: str, user_id: int) -> Story | None:
+    result = await db.execute(
+        select(Story).filter(Story.id == story_id, Story.user_id == user_id)
     )
+    return result.scalars().first()
 
 
-def upsert_story_for_user(db: Session, req: StoryUpsert, user_id: int) -> StorySummary:
+async def upsert_story_for_user(
+    db: Session, req: StoryUpsert, user_id: int
+) -> StorySummary:
     now = datetime.utcnow()
-    s = db.query(Story).filter(Story.id == req.id, Story.user_id == user_id).first()
+    result = await db.execute(
+        select(Story).filter(Story.id == req.id, Story.user_id == user_id)
+    )
+    s = result.scalars().first()
     if not s:
         s = Story(
             id=req.id,
@@ -61,7 +68,7 @@ def upsert_story_for_user(db: Session, req: StoryUpsert, user_id: int) -> StoryS
     s.story_content_json = json.dumps(req.storyContent or {})
     s.story_images_json = json.dumps(req.storyImages or {})
 
-    db.commit()
+    await db.commit()
 
     return StorySummary(
         id=s.id,
@@ -74,10 +81,13 @@ def upsert_story_for_user(db: Session, req: StoryUpsert, user_id: int) -> StoryS
     )
 
 
-def delete_story_for_user(db: Session, story_id: str, user_id: int) -> bool:
-    s = db.query(Story).filter(Story.id == story_id, Story.user_id == user_id).first()
+async def delete_story_for_user(db: Session, story_id: str, user_id: int) -> bool:
+    result = await db.execute(
+        select(Story).filter(Story.id == story_id, Story.user_id == user_id)
+    )
+    s = result.scalars().first()
     if not s:
         return False
-    db.delete(s)
-    db.commit()
+    await db.delete(s)
+    await db.commit()
     return True

@@ -61,6 +61,13 @@ export function useStoryForgeApi() {
     setUserEmail("");
   }, []);
 
+  const storyDoctor = useCallback((blueprint) => {
+    return apiFetch('/api/story-doctor', {
+      method: 'POST',
+      body: JSON.stringify({ blueprint })
+    });
+  }, [apiFetch]);
+
   return {
     authToken,
     setAuthToken,
@@ -68,6 +75,7 @@ export function useStoryForgeApi() {
     setUserEmail,
     apiFetch,
     requireAuth,
-    logout
+    logout,
+    storyDoctor
   };
 }

@@ -1,7 +1,26 @@
-import React from 'react';
-import { ChevronRight, Loader2 } from 'lucide-react';
+import React, { useState, useCallback } from 'react';
+import { ChevronRight, Loader2, Sparkles } from 'lucide-react';
 
-export const BlueprintView = ({ config, setConfig, blueprint, storyImages, setView, startDrafting, onAbort, chatMessages, chatInput, setChatInput, onSendChat, isChatWorking }) => (
+export const BlueprintView = ({ blueprint, storyImages, setView, startDrafting, onAbort, chatMessages, chatInput, setChatInput, onSendChat, isChatWorking, storyDoctor }) => {
+  const [storyDoctorSuggestions, setStoryDoctorSuggestions] = useState(null);
+  const [isDoctorWorking, setIsDoctorWorking] = useState(false);
+
+  const getStoryDoctorSuggestions = useCallback(async () => {
+    if (!blueprint) return;
+    setIsDoctorWorking(true);
+    setStoryDoctorSuggestions(null);
+    try {
+      const suggestions = await storyDoctor(blueprint);
+      setStoryDoctorSuggestions(suggestions);
+    } catch (error) {
+      setStoryDoctorSuggestions(`<p class="text-red-500">Sorry, the Story Doctor is having trouble thinking right now. Please try again later.</p>`);
+      console.error("Error getting story doctor suggestions:", error);
+    } finally {
+      setIsDoctorWorking(false);
+    }
+  }, [blueprint, storyDoctor]);
+
+  return (
   <main className="max-w-4xl mx-auto py-6 px-4 md:py-8 md:px-6 animate-in fade-in slide-in-from-bottom-8">
 
     {/* Header */}
@@ -54,7 +73,21 @@ export const BlueprintView = ({ config, setConfig, blueprint, storyImages, setVi
           <section className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex flex-col h-auto">
             <div className="flex items-center justify-between gap-4 mb-4">
               <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">Story DNA Workshop</h3>
-              {isChatWorking && <Loader2 className="w-4 h-4 animate-spin text-slate-400" />}
+              <div className="flex items-center gap-2">
+                {isChatWorking && <Loader2 className="w-4 h-4 animate-spin text-slate-400" />}
+                <button
+                  onClick={getStoryDoctorSuggestions}
+                  disabled={isDoctorWorking || isChatWorking}
+                  className="flex items-center gap-1.5 text-xs font-bold text-slate-500 hover:text-purple-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isDoctorWorking ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Sparkles className="w-4 h-4" />
+                  )}
+                  Story Doctor
+                </button>
+              </div>
             </div>
 
             <div
@@ -93,7 +126,7 @@ export const BlueprintView = ({ config, setConfig, blueprint, storyImages, setVi
                 onChange={(e) => setChatInput(e.target.value)}
                 placeholder="Request a DNA rewrite…"
                 className="flex-1 p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
-                disabled={isChatWorking}
+                disabled={isChatWorking || isDoctorWorking}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault();
@@ -103,13 +136,26 @@ export const BlueprintView = ({ config, setConfig, blueprint, storyImages, setVi
               />
               <button
                 type="submit"
-                disabled={isChatWorking || !chatInput.trim()}
+                disabled={isChatWorking || isDoctorWorking || !chatInput.trim()}
                 className="px-4 py-3 bg-slate-900 hover:bg-black text-white rounded-xl font-bold disabled:opacity-50 transition-colors"
                 aria-label="Apply Changes"
               >
                 Apply
               </button>
             </form>
+
+            {storyDoctorSuggestions && (
+              <div className="mt-6 text-sm text-slate-700 border-t border-slate-200 pt-6">
+                <h4 className="font-bold text-slate-800 mb-2 flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-purple-500" />
+                  Story Doctor's Notes
+                </h4>
+                <div
+                  className="prose prose-sm max-w-none prose-p:my-2 prose-ul:my-2 prose-li:my-1"
+                  dangerouslySetInnerHTML={{ __html: storyDoctorSuggestions }}
+                />
+              </div>
+            )}
           </section>
       </div>
 
@@ -140,7 +186,7 @@ export const BlueprintView = ({ config, setConfig, blueprint, storyImages, setVi
                   {(Array.isArray(blueprint.characters) ? blueprint.characters : []).map((char, i) => {
                       const parts = char.split(':');
                       const name = parts[0].trim();
-                      const desc = parts.slice(1).join(':').trim(); // Join back in case description has colons
+                      const desc = parts.slice(1).join(':').trim();
                       return (
                           <div key={i} className="text-sm">
                               <span className="block font-bold text-slate-800">{name}</span>
@@ -154,4 +200,4 @@ export const BlueprintView = ({ config, setConfig, blueprint, storyImages, setVi
 
     </div>
   </main>
-);
+)};

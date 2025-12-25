@@ -7,7 +7,7 @@ from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from .auth import create_access_token, get_current_user, hash_password, verify_password
 from .config import settings
@@ -15,10 +15,13 @@ from .db import Base, engine, get_db
 from .gemini_client import gemini_generate_image, gemini_generate_text
 from .models import User
 from .schemas import (
+    AiChapterRequest,
     AiImagenRequest,
     AiImagenResponse,
     AiSequelRequest,
     AiSequelResponse,
+    AiStoryDoctorRequest,
+    AiStoryDoctorResponse,
     AiTextRequest,
     AiTextResponse,
     LoginRequest,
@@ -38,7 +41,8 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     if settings.db_url.startswith("sqlite:////data/"):
         os.makedirs("/data", exist_ok=True)
-    Base.metadata.create_all(bind=engine)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
     yield
 
 
@@ -62,7 +66,7 @@ app.add_middleware(
 
 
 @app.get("/health")
-def health() -> dict:
+async def health() -> dict:
     return {"ok": True}
 
 
@@ -75,7 +79,7 @@ if os.path.isdir(ASSETS_DIR):
 
 
 @app.get("/")
-def index() -> FileResponse:
+async def index() -> FileResponse:
     index_path = os.path.join(STATIC_DIR, "index.html")
     if not os.path.isfile(index_path):
         if DEV_FRONTEND_URL:
@@ -85,9 +89,9 @@ def index() -> FileResponse:
 
 
 @app.post("/api/auth/signup", response_model=TokenResponse)
-def signup(req: SignupRequest, db: Session = Depends(get_db)) -> TokenResponse:
-    existing = db.query(User).filter(User.email == req.email.lower()).first()
-    if existing:
+async def signup(req: SignupRequest, db: AsyncSession = Depends(get_db)) -> TokenResponse:
+    existing = await db.execute(select(User).filter(User.email == req.email.lower()))
+    if existing.scalars().first():
         raise HTTPException(status_code=400, detail="Email already registered")
 
     _validate_password(req.password)
@@ -99,15 +103,16 @@ def signup(req: SignupRequest, db: Session = Depends(get_db)) -> TokenResponse:
 
     user = User(email=req.email.lower(), password_hash=pw_hash)
     db.add(user)
-    db.commit()
+    await db.commit()
 
     token = create_access_token(user.email)
     return TokenResponse(access_token=token)
 
 
 @app.post("/api/auth/login", response_model=TokenResponse)
-def login(req: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse:
-    user = db.query(User).filter(User.email == req.email.lower()).first()
+async def login(req: LoginRequest, db: AsyncSession = Depends(get_db)) -> TokenResponse:
+    result = await db.execute(select(User).filter(User.email == req.email.lower()))
+    user = result.scalars().first()
 
     _validate_password(req.password)
 
@@ -124,24 +129,24 @@ def login(req: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse:
 
 
 @app.get("/api/auth/me", response_model=UserResponse)
-def me(current_user: User = Depends(get_current_user)) -> UserResponse:
+async def me(current_user: User = Depends(get_current_user)) -> UserResponse:
     return UserResponse(email=current_user.email)
 
 
 @app.get("/api/stories", response_model=list[StorySummary])
-def list_stories(
-    current_user: User = Depends(get_current_user), db: Session = Depends(get_db)
+async def list_stories(
+    current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
 ) -> list[StorySummary]:
-    return story_service.list_stories_for_user(db, current_user.id)
+    return await story_service.list_stories_for_user(db, current_user.id)
 
 
 @app.get("/api/stories/{story_id}", response_model=StoryDetail)
-def get_story(
+async def get_story(
     story_id: str,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ) -> StoryDetail:
-    s = story_service.get_story_for_user(db, story_id, current_user.id)
+    s = await story_service.get_story_for_user(db, story_id, current_user.id)
     if not s:
         raise HTTPException(status_code=404, detail="Not found")
 
@@ -161,21 +166,21 @@ def get_story(
 
 
 @app.post("/api/stories", response_model=StorySummary)
-def upsert_story(
+async def upsert_story(
     req: StoryUpsert,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ) -> StorySummary:
-    return story_service.upsert_story_for_user(db, req, current_user.id)
+    return await story_service.upsert_story_for_user(db, req, current_user.id)
 
 
 @app.delete("/api/stories/{story_id}")
-def delete_story(
+async def delete_story(
     story_id: str,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ) -> dict:
-    if not story_service.delete_story_for_user(db, story_id, current_user.id):
+    if not await story_service.delete_story_for_user(db, story_id, current_user.id):
         raise HTTPException(status_code=404, detail="Not found")
     return {"ok": True}
 
@@ -196,6 +201,73 @@ async def ai_text(
         return AiTextResponse(text=text)
     except Exception as e:
         logger.error("AI Text Generation failed (%s)", type(e).__name__)
+        raise HTTPException(status_code=502, detail="AI provider request failed")
+
+
+@app.post("/api/ai/chapter", response_model=AiTextResponse)
+async def ai_chapter(
+    req: AiChapterRequest, current_user: User = Depends(get_current_user)
+) -> AiTextResponse:
+    timeout_s = (req.timeoutMs / 1000.0) if req.timeoutMs else None
+    try:
+        chapter_info = req.blueprint.get("chapters", [])[req.chapterIndex]
+    except IndexError:
+        raise HTTPException(422, "Invalid chapter index")
+
+    system_prompt = prompt_service.get_chapter_system_prompt(
+        writing_style=req.config.get("writingStyle", ""),
+        tone=req.config.get("tone", ""),
+    )
+    user_prompt = prompt_service.construct_chapter_user_prompt(
+        blueprint=req.blueprint,
+        chapter_index=req.chapterIndex,
+        chapter_title=chapter_info.get("title", ""),
+        chapter_summary=chapter_info.get("summary", ""),
+        previous_chapter_text=req.previousChapterText,
+        config=req.config,
+    )
+
+    try:
+        text = await gemini_generate_text(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            json_mode=False,
+            timeout_s=timeout_s,
+            generation_config=req.generationConfig,
+        )
+        return AiTextResponse(text=text)
+    except Exception as e:
+        logger.error("AI Chapter Generation failed (%s)", type(e).__name__)
+        raise HTTPException(status_code=502, detail="AI provider request failed")
+
+
+@app.post("/api/ai/analyze_blueprint", response_model=AiStoryDoctorResponse)
+async def ai_analyze_blueprint(
+    req: AiStoryDoctorRequest, current_user: User = Depends(get_current_user)
+) -> AiStoryDoctorResponse:
+    system_prompt = prompt_service.get_story_doctor_system_prompt()
+    user_prompt = prompt_service.construct_story_doctor_user_prompt(req.blueprint)
+
+    try:
+        text = await gemini_generate_text(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            json_mode=True,
+            generation_config={
+                "temperature": 0.6,
+                "topP": 0.95,
+                "topK": 64,
+                "maxOutputTokens": 2048,
+            },
+        )
+        suggestions = json.loads(_extract_json(text))
+        if not isinstance(suggestions, list) or not all(
+            isinstance(s, str) for s in suggestions
+        ):
+            raise ValueError("AI returned invalid suggestion format")
+        return AiStoryDoctorResponse(suggestions=suggestions)
+    except Exception as e:
+        logger.error("AI Story Doctor failed (%s)", type(e).__name__)
         raise HTTPException(status_code=502, detail="AI provider request failed")
 
 
@@ -256,7 +328,7 @@ def _extract_json(text: str) -> str:
 
 
 @app.get("/{full_path:path}")
-def spa_fallback(full_path: str) -> FileResponse:
+async def spa_fallback(full_path: str) -> FileResponse:
     if (
         full_path.startswith("api/")
         or full_path.startswith("health")

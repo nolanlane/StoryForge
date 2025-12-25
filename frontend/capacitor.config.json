@@ -1,0 +1,9 @@
+{
+  "appId": "com.storyforge.app",
+  "appName": "StoryForge",
+  "webDir": "dist",
+  "server": {
+    "url": "http://10.0.2.2:8000",
+    "cleartext": true
+  }
+}

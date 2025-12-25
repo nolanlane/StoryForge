@@ -1,5 +1,74 @@
 import json
 
+def get_chapter_system_prompt(writing_style: str, tone: str) -> str:
+    """
+    Creates the elevated system prompt for chapter generation.
+    """
+    return f"""\nYou are a master novelist. Your task is to write the next chapter of a novel, adhering to a core set of literary principles with discipline and creativity. The reader is already invested.
+
+**Your Guiding Principles:**
+
+*   **Voice and Tone:** Your writing must embody a {writing_style}, {tone} tone. This is non-negotiable.
+*   **Scene, Not Summary:** You will write scenes. Show characters acting, speaking, and making choices. Never fall back on summarizing events. Trust the reader.
+*   **Sensory Details:** Ground the scene in sharp, sensory details. A smell, a sound, the feeling of an object. Use detail with purpose; a few well-chosen specifics are more powerful than a paragraph of generic description.
+*   **Authentic Dialogue:** Dialogue must feel real. People interrupt, they speak with subtext, and they have unique voices. It is a tool for revealing character and advancing the plot.
+*   **Forward Momentum:** Every chapter must end with a hook that propels the reader forward. This could be an unanswered question, a shocking revelation, or an unresolved action.
+
+You will return only the raw text of the chapter. No titles, no summaries, no explanatory notes.
+"""
+
+def construct_chapter_user_prompt(
+    blueprint: dict,
+    chapter_index: int,
+    chapter_title: str,
+    chapter_summary: str,
+    previous_chapter_text: str,
+    config: dict,
+) -> str:
+    """
+    Constructs the user prompt for generating a chapter, including the consistency check.
+    """
+    total_chapters = len(blueprint.get("chapters", []))
+    progress = (chapter_index + 1) / total_chapters
+    tension = "Low (Setup)"
+    if progress > 0.3:
+        tension = "Medium (Rising Action)"
+    if progress > 0.7:
+        tension = "High (Climax/Crisis)"
+    if progress == 1:
+        tension = "Resolution (Falling Action)"
+
+    if chapter_index > 0:
+        context = f"""PREVIOUS SCENE ENDING: "...{previous_chapter_text[-2500:]}"\n\nCONTINUITY INSTRUCTIONS:\n- Resume IMMEDIATELY from the moment above.\n- Maintain the mood/atmosphere established."""
+    else:
+        context = "START OF STORY. Establish the setting and sensory details immediately."
+    
+    next_summary = blueprint.get("chapters", [])[chapter_index + 1]["summary"] if chapter_index < total_chapters - 1 else "The End."
+
+    return f"""---\nSTORY BIBLE CHECK: Before writing, review the Story Bible below. Ensure the characters' actions and descriptions in the new chapter are perfectly consistent with their established traits and the overall plot. Do not contradict the bible.\n---\nStory Bible anchor:\n- Central conflict: {blueprint.get("central_conflict_engine")}\n- Synopsis: {blueprint.get("synopsis", "")}\n- Cast: {" | ".join(blueprint.get("characters", []))}\n- Avoid: {config.get("avoid")}\n\nChapter {chapter_index + 1}/{total_chapters}: "{chapter_title}"\nBeats (what must happen): {chapter_summary}\nTension: {tension}\nLead-in target (next chapter direction): {next_summary}\n\nContinuity context:\n{context}\n\nLength: 900–1400 words. Tight, no filler.\n\nWrite the next chapter of this novel.\n"""
+
+def get_story_doctor_system_prompt() -> str:
+    """
+    Creates the system prompt for the Story Doctor feature.
+    """
+    return """\nYou are a world-class story doctor and developmental editor. Your task is to read the following Story Bible and identify 3 potential weaknesses or areas for improvement.
+
+Your analysis should be sharp, insightful, and constructive. For each point, briefly explain the potential issue and suggest a concrete direction for the user to consider.
+
+Focus on:
+- **Character Motivation:** Is it clear what the protagonist wants? Are the villain's motives compelling or generic?
+- **Conflict Engine:** Is the central conflict strong enough to sustain a multi-chapter story? Does it have personal stakes?
+- **Narrative Arc:** Does the chapter summary outline feel satisfying? Is the pacing logical? Is the ending predictable?
+
+Return your 3 suggestions as a JSON array of strings.
+"""
+
+def construct_story_doctor_user_prompt(blueprint: dict) -> str:
+    """
+    Constructs the user prompt for the Story Doctor feature.
+    """
+    return f"""Here is the Story Bible:\n{json.dumps(blueprint)}"""
+
 
 def construct_sequel_system_prompt(
     chapter_count: int, banned_phrases: list[str], banned_descriptor_tokens: list[str]
@@ -13,19 +82,7 @@ def construct_sequel_system_prompt(
         )
     bans = ("\n".join(banned_bits) + "\n\n") if banned_bits else ""
 
-    return f"""You're developing a sequel to an existing story. Same world, new chapter.
-
-Think about what made the original compelling and how to honor that while giving readers something fresh. The best sequels don't just repeat—they deepen.
-
-SEQUEL CRAFT:
-- Pick up threads from the ending, but the central conflict should be new
-- Returning characters should have grown or changed; show the weight of what happened
-- Introduce 1-2 new characters who challenge the existing dynamics
-- Raise the stakes, but keep them personal—not just "bigger explosions"
-
-STRUCTURE: {chapter_count} chapters. Same JSON schema as the original.
-
-{bans}Return valid JSON only."""
+    return f"""You're developing a sequel to an existing story. Same world, new chapter.\n\nThink about what made the original compelling and how to honor that while giving readers something fresh. The best sequels don't just repeat—they deepen.\n\nSEQUEL CRAFT:\n- Pick up threads from the ending, but the central conflict should be new\n- Returning characters should have grown or changed; show the weight of what happened\n- Introduce 1-2 new characters who challenge the existing dynamics\n- Raise the stakes, but keep them personal—not just "bigger explosions"\n\nSTRUCTURE: {chapter_count} chapters. Same JSON schema as the original.\n\n{bans}Return valid JSON only."""
 
 
 def construct_sequel_user_prompt(source_blueprint: dict, ending_excerpt: str) -> str:

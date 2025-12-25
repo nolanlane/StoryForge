@@ -64,6 +64,80 @@ class AiTextResponse(BaseModel):
     text: str
 
 
+class AiChapterRequest(BaseModel):
+    blueprint: dict
+    chapterIndex: int = Field(ge=0, le=100)
+    previousChapterText: str = Field(default="", max_length=5000)
+    config: dict
+    timeoutMs: int | None = Field(default=None, ge=1000, le=300000)
+    generationConfig: dict | None = None
+
+    @field_validator("blueprint")
+    @classmethod
+    def _limit_blueprint_size(cls, v: dict) -> dict:
+        try:
+            raw = json.dumps(v, ensure_ascii=False)
+        except (TypeError, ValueError):
+            raise ValueError("blueprint must be JSON-serializable")
+
+        if len(raw.encode("utf-8")) > 200_000:
+            raise ValueError("blueprint too large")
+
+        def check_depth(obj, depth=0):
+            if depth > 20:
+                raise ValueError("blueprint too deep")
+            if isinstance(obj, dict):
+                for k, val in obj.items():
+                    check_depth(val, depth + 1)
+            elif isinstance(obj, list):
+                for item in obj:
+                    check_depth(item, depth + 1)
+        check_depth(v)
+        return v
+
+    @field_validator("config")
+    @classmethod
+    def _limit_config_size(cls, v: dict) -> dict:
+        try:
+            raw = json.dumps(v, ensure_ascii=False)
+        except (TypeError, ValueError):
+            raise ValueError("config must be JSON-serializable")
+        if len(raw.encode("utf-8")) > 20_000:
+            raise ValueError("config too large")
+        return v
+
+
+class AiStoryDoctorRequest(BaseModel):
+    blueprint: dict
+
+    @field_validator("blueprint")
+    @classmethod
+    def _limit_blueprint_size(cls, v: dict) -> dict:
+        try:
+            raw = json.dumps(v, ensure_ascii=False)
+        except (TypeError, ValueError):
+            raise ValueError("blueprint must be JSON-serializable")
+
+        if len(raw.encode("utf-8")) > 200_000:
+            raise ValueError("blueprint too large")
+
+        def check_depth(obj, depth=0):
+            if depth > 20:
+                raise ValueError("blueprint too deep")
+            if isinstance(obj, dict):
+                for k, val in obj.items():
+                    check_depth(val, depth + 1)
+            elif isinstance(obj, list):
+                for item in obj:
+                    check_depth(item, depth + 1)
+        check_depth(v)
+        return v
+
+
+class AiStoryDoctorResponse(BaseModel):
+    suggestions: list[str]
+
+
 class AiImagenRequest(BaseModel):
     prompt: str = Field(max_length=8000)
     timeoutMs: int | None = Field(default=None, ge=1000, le=60000)
