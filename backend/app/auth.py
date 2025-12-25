@@ -10,6 +10,7 @@ from sqlalchemy.future import select
 from .config import settings
 from .db import get_db
 from .models import User
+from passlib.context import CryptContext
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 

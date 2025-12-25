@@ -15,7 +15,7 @@ import { extractJSON, makeId } from './lib/utils';
 export default function App() {
   // --- Custom Hooks ---
   const { authToken, setAuthToken, userEmail, setUserEmail, apiFetch, requireAuth, logout } = useStoryForgeApi();
-  const { callGeminiText, callImagen, stopGeneration, startGeneration, abortControllerRef } = useStoryEngine(apiFetch, requireAuth);
+  const { callGeminiText, callImagen, callAiChapter, stopGeneration, startGeneration, abortControllerRef } = useStoryEngine(apiFetch, requireAuth);
 
   // --- State ---
   const [view, setView] = useState('setup'); 
@@ -351,62 +351,10 @@ Avoid: <avoid>${config.avoid}</avoid>`;
       const current = storyContent[index] || "";
       snapshotChapterVersion(index, current, "Before regenerate");
 
-      const total = blueprint.chapters.length;
-      const progress = (index + 1) / total;
-      let tension = "Low (Setup)";
-      if (progress > 0.3) tension = "Medium (Rising Action)";
-      if (progress > 0.7) tension = "High (Climax/Crisis)";
-      if (progress === 1) tension = "Resolution (Falling Action)";
-
-      let context = "START OF STORY. Establish the setting and sensory details immediately.";
-      if (index > 0) {
-        const prevText = storyContent[index - 1] || "";
-        context = `PREVIOUS SCENE ENDING: "...${String(prevText).slice(-2500)}"
-
-CONTINUITY INSTRUCTIONS:
-- Resume IMMEDIATELY from the moment above.
-- Maintain the mood/atmosphere established.`;
-      }
-
-      const nextSummary = index < total - 1 ? blueprint.chapters[index + 1].summary : "The End.";
-
-      const systemPrompt = `You're writing a chapter of a novel. The reader has already bought in—no need to over-explain or sell them on the world.
-
-VOICE: ${config.writingStyle}. ${config.tone} tone.
-
-Write scenes, not summaries. Show characters doing things, talking, making choices. Trust the reader to keep up.
-
-Ground every scene in sensory detail—what does the room smell like, what's the weather, what's in someone's hands. But don't overwrite. A few sharp details beat a paragraph of description.
-
-Dialogue should sound like how people actually talk—interrupted, indirect, sometimes wrong.
-
-End the chapter with forward momentum. Something unresolved, a new question, a door opening.
-
-Output the chapter text only. No titles, no preamble.`;
-
-      const userPrompt = `Story Bible anchor:
-- Central conflict: ${blueprint.central_conflict_engine}
-- Synopsis: ${blueprint.synopsis || ""}
-- Cast: ${(Array.isArray(blueprint.characters) ? blueprint.characters : []).join(" | ")}
-- Avoid: ${config.avoid}
-
-Chapter ${index + 1}/${total}: "${chap.title}"
-Beats (what must happen): ${chap.summary}
-Tension: ${tension}
-Lead-in target (next chapter direction): ${nextSummary}
-
-Continuity context:
-${context}
-
-Length: 900–1400 words. Tight, no filler.`;
+      const prevText = index > 0 ? (storyContent[index - 1] || "") : null;
 
       try {
-        const text = await callGeminiText(systemPrompt, userPrompt, false, 180000, {
-          temperature: 0.85,
-          topP: 0.95,
-          topK: 64,
-          maxOutputTokens: 8192
-        });
+        const text = await callAiChapter(blueprint, index, prevText, config, 180000);
         if (!text) return;
         setStoryContent(prev => ({ ...prev, [index]: text }));
       } catch (e) {
@@ -535,66 +483,15 @@ Describe the illustration.`;
     }
 
     const chap = blueprint.chapters[index];
-    const total = blueprint.chapters.length;
     setLoading(true);
     setLoadingMessage(`Writing Ch ${index + 1}: ${chap.title}...`);
 
-    const progress = (index + 1) / total;
-    let tension = "Low (Setup)";
-    if (progress > 0.3) tension = "Medium (Rising Action)";
-    if (progress > 0.7) tension = "High (Climax/Crisis)";
-    if (progress === 1) tension = "Resolution (Falling Action)";
-
-    let context = "START OF STORY. Establish the setting and sensory details immediately.";
-    if (index > 0) {
-      const prevText = currentContentMap[index - 1] || "";
-      context = `PREVIOUS SCENE ENDING: "...${prevText.slice(-2500)}"
-      
-      CONTINUITY INSTRUCTIONS:
-      - Resume IMMEDIATELY from the moment above.
-      - Maintain the mood/atmosphere established.`;
-    }
-
-    const nextSummary = index < total - 1 ? blueprint.chapters[index + 1].summary : "The End.";
-
-    const systemPrompt = `You're writing a chapter of a novel. The reader has already bought in—no need to over-explain or sell them on the world.
-
-VOICE: ${config.writingStyle}. ${config.tone} tone.
-
-Write scenes, not summaries. Show characters doing things, talking, making choices. Trust the reader to keep up.
-
-Ground every scene in sensory detail—what does the room smell like, what's the weather, what's in someone's hands. But don't overwrite. A few sharp details beat a paragraph of description.
-
-Dialogue should sound like how people actually talk—interrupted, indirect, sometimes wrong.
-
-End the chapter with forward momentum. Something unresolved, a new question, a door opening.
-
-Output the chapter text only. No titles, no preamble. Start with the first sentence of the story.`;
-
-    const userPrompt = `Story Bible anchor:
-- Central conflict: ${blueprint.central_conflict_engine}
-- Synopsis: ${blueprint.synopsis || ""}
-- Cast: ${(Array.isArray(blueprint.characters) ? blueprint.characters : []).join(" | ")}
-- Avoid: ${config.avoid}
-
-Chapter ${index + 1}/${total}: "${chap.title}"
-Beats (what must happen): ${chap.summary}
-Tension: ${tension}
-Lead-in target (next chapter direction): ${nextSummary}
-
-Continuity context:
-${context}
-
-Length: 900–1400 words. Tight, no filler.`;
+    const prevText = index > 0 ? (currentContentMap[index - 1] || "") : null;
 
     try {
       // 90s Timeout for Chapter Text
-      const text = await callGeminiText(systemPrompt, userPrompt, false, 180000, {
-        temperature: 0.85,
-        topP: 0.95,
-        topK: 64,
-        maxOutputTokens: 8192
-      });
+      const text = await callAiChapter(blueprint, index, prevText, config, 180000);
+
       if (!text && signal.aborted) return;
 
       const newContentMap = { ...currentContentMap, [index]: text };
