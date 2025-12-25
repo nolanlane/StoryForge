@@ -10,10 +10,14 @@ export const BlueprintView = ({ blueprint, storyImages, setView, startDrafting, 
     setIsDoctorWorking(true);
     setStoryDoctorSuggestions(null);
     try {
-      const suggestions = await storyDoctor(blueprint);
-      setStoryDoctorSuggestions(suggestions);
+      const result = await storyDoctor(blueprint);
+      if (result && Array.isArray(result.suggestions)) {
+        setStoryDoctorSuggestions(result.suggestions);
+      } else {
+        throw new Error("Invalid response from Story Doctor");
+      }
     } catch (error) {
-      setStoryDoctorSuggestions(`<p class="text-red-500">Sorry, the Story Doctor is having trouble thinking right now. Please try again later.</p>`);
+      setStoryDoctorSuggestions(["Sorry, the Story Doctor is having trouble thinking right now. Please try again later."]);
       console.error("Error getting story doctor suggestions:", error);
     } finally {
       setIsDoctorWorking(false);
@@ -144,16 +148,19 @@ export const BlueprintView = ({ blueprint, storyImages, setView, startDrafting, 
               </button>
             </form>
 
-            {storyDoctorSuggestions && (
+            {storyDoctorSuggestions && storyDoctorSuggestions.length > 0 && (
               <div className="mt-6 text-sm text-slate-700 border-t border-slate-200 pt-6">
                 <h4 className="font-bold text-slate-800 mb-2 flex items-center gap-2">
                   <Sparkles className="w-4 h-4 text-purple-500" />
                   Story Doctor's Notes
                 </h4>
-                <div
-                  className="prose prose-sm max-w-none prose-p:my-2 prose-ul:my-2 prose-li:my-1"
-                  dangerouslySetInnerHTML={{ __html: storyDoctorSuggestions }}
-                />
+                <ul className="list-disc list-outside ml-4 space-y-2 marker:text-purple-500">
+                  {storyDoctorSuggestions.map((suggestion, idx) => (
+                    <li key={idx} className="text-slate-700 leading-relaxed">
+                      {suggestion}
+                    </li>
+                  ))}
+                </ul>
               </div>
             )}
           </section>

@@ -156,7 +156,7 @@ export const ReaderView = ({ config, setView, exportPDF, isExporting, blueprint,
           {/* Sidebar / Mobile Menu */}
           <nav
             className={`
-              absolute inset-0 z-10 bg-slate-50/95 backdrop-blur-sm md:static md:w-64 md:bg-slate-50 md:border-r md:border-slate-200 md:block
+              fixed inset-0 z-30 bg-slate-50/95 backdrop-blur-sm md:static md:w-64 md:bg-slate-50 md:border-r md:border-slate-200 md:block
               ${mobileMenuOpen ? 'block' : 'hidden'}
             `}
             aria-label="Table of Contents"

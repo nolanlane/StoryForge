@@ -14,7 +14,7 @@ import { extractJSON, makeId } from './lib/utils';
 
 export default function App() {
   // --- Custom Hooks ---
-  const { authToken, setAuthToken, userEmail, setUserEmail, apiFetch, requireAuth, logout } = useStoryForgeApi();
+  const { authToken, setAuthToken, userEmail, setUserEmail, apiFetch, requireAuth, logout, storyDoctor } = useStoryForgeApi();
   const { callGeminiText, callImagen, callAiChapter, stopGeneration, startGeneration, abortControllerRef } = useStoryEngine(apiFetch, requireAuth);
 
   // --- State ---
@@ -900,6 +900,7 @@ Describe the illustration.`;
                         chatInput={blueprintChatInput}
                         setChatInput={setBlueprintChatInput}
                         isChatWorking={isBlueprintChatWorking}
+                        storyDoctor={storyDoctor}
                         onSendChat={async () => {
                           const msg = blueprintChatInput.trim();
                           if (!msg) return;
