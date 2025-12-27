@@ -57,6 +57,8 @@ const repairJSON = (json) => {
   let fixed = '';
   let inString = false;
   let isEscaped = false;
+  let currentString = '';
+  let pendingQuote = false; // Track if we just finished a string and waiting to see if it's a key
   
   // Find the first { or [ to start
   const firstBrace = clean.search(/[{[]/);
@@ -65,27 +67,93 @@ const repairJSON = (json) => {
   const preamble = clean.substring(0, firstBrace);
   clean = clean.substring(firstBrace);
 
+  const ROOT_KEYS = [
+      "chapters", "characters", "visual_dna", "character_visuals", 
+      "title", "synopsis", "naming_convention", 
+      "central_conflict_engine", "narrative_structure"
+  ];
+
   for (let i = 0; i < clean.length; i++) {
       const char = clean[i];
       
       if (inString) {
-          fixed += char;
+          currentString += char;
           if (isEscaped) {
               isEscaped = false;
           } else if (char === '\\') {
               isEscaped = true;
           } else if (char === '"') {
               inString = false;
+              pendingQuote = true;
           }
           continue;
       }
       
       if (char === '"') {
           inString = true;
-          fixed += char;
+          currentString = '"';
           continue;
       }
+      
+      // If we are pending a quote check (just finished a string)
+      if (pendingQuote) {
+          if (char.trim() === '') {
+             // whitespace, ignore, keep pending
+          } else if (char === ':') {
+             // It IS a key!
+             const keyName = currentString.replace(/"/g, ''); 
+             if (ROOT_KEYS.includes(keyName) && stack.length > 1) {
+                 // UNWIND!
+                 // Check if fixed ends with comma
+                 let insertPos = fixed.length;
+                 let hasComma = false;
+                 // Scan back for comma skipping whitespace
+                 for (let k = fixed.length - 1; k >= 0; k--) {
+                     if (/\s/.test(fixed[k])) continue;
+                     if (fixed[k] === ',') {
+                         insertPos = k;
+                         hasComma = true;
+                     }
+                     break;
+                 }
+                 
+                 let closers = '';
+                 // Close everything except the root brace
+                 while(stack.length > 1) {
+                     const last = stack.pop();
+                     closers += (last === '{' ? '}' : ']');
+                 }
+                 
+                 if (hasComma) {
+                     // Insert closers BEFORE the comma
+                     fixed = fixed.slice(0, insertPos) + closers + fixed.slice(insertPos);
+                 } else {
+                     // Insert closers AND a comma
+                     fixed += closers + ',';
+                 }
+             }
+             
+             // Flush the string and the current char (:)
+             fixed += currentString + char;
+             currentString = '';
+             pendingQuote = false;
+             continue; 
+          } else {
+             // Not a key (maybe a value in a list, or comma came before?)
+             // Flush currentString
+             fixed += currentString;
+             currentString = '';
+             pendingQuote = false;
+             // Continue processing this char (e.g. comma or close brace)
+             // Fall through
+          }
+      } else if (currentString.length > 0) {
+          // We had a string but hit something else immediately
+          fixed += currentString;
+          currentString = '';
+      }
 
+      // Normal processing
       if (char === '{' || char === '[') {
           stack.push(char);
           fixed += char;
@@ -99,8 +167,7 @@ const repairJSON = (json) => {
               stack.pop();
               fixed += char;
           } else {
-              // Mismatch. Check if we can find the opener deeper in stack
-              // If found, close everything in between.
+              // Mismatch logic
               let foundIdx = -1;
               for (let j = stack.length - 1; j >= 0; j--) {
                   if (stack[j] === expectedOpener) {
@@ -118,16 +185,13 @@ const repairJSON = (json) => {
                   stack.pop(); // Pop the expectedOpener
                   fixed += char;
               } else {
-                  // Opener not found. Treat as potential typo (swap) or ignore.
-                  // If we have { ] and no [ earlier, assume typo and use }
+                  // Typo correction or ignore
                   if (last === '{' && char === ']') {
                       fixed += '}';
                       stack.pop();
                   } else if (last === '[' && char === '}') {
                       fixed += ']';
                       stack.pop();
-                  } else {
-                      // True orphan, ignore
                   }
               }
           }
