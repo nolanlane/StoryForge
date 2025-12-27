@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { BookOpen, Save, Download, Loader2, RefreshCcw, Wand2, Image as ImageIcon, Menu, X } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { BookOpen, Save, Download, Loader2, RefreshCcw, Wand2, Image as ImageIcon, Menu, X, ChevronRight, Zap, Eye } from 'lucide-react';
 
 const renderMarkdown = (text) => {
   if (!text) return <p className="text-slate-500 italic text-center">Content missing...</p>;
@@ -85,13 +85,36 @@ const HistoryPanel = ({ versions, isWorking, selectedVersionId, setSelectedVersi
   );
 };
 
-export const ReaderView = ({ config, setView, exportPDF, isExporting, blueprint, storyImages, storyContent, onAbort, isChapterToolsWorking, onRegenerateChapterText, onRewriteChapter, onRegenerateIllustration, getChapterHistory, onRestoreChapterVersion }) => {
+export const ReaderView = ({
+  config,
+  setView,
+  exportPDF,
+  isExporting,
+  blueprint,
+  storyImages,
+  storyContent,
+  chapterGuidance,
+  imageGuidance,
+  onUpdateChapterGuidance,
+  onUpdateImageGuidance,
+  onAbort,
+  isChapterToolsWorking,
+  onGenerateChapterText,
+  onRewriteChapter,
+  onRegenerateIllustration,
+  getChapterHistory,
+  onRestoreChapterVersion,
+  onGenerateAllRemaining,
+  chapterGuidanceTemplates,
+  imageGuidanceTemplates
+}) => {
   const [activeChapter, setActiveChapter] = useState(0);
   const [rewriteOpen, setRewriteOpen] = useState(false);
   const [rewriteInstruction, setRewriteInstruction] = useState('');
   const [historyOpen, setHistoryOpen] = useState(false);
   const [selectedVersionId, setSelectedVersionId] = useState('');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
 
   const chapters = Array.isArray(blueprint?.chapters) ? blueprint.chapters : [];
 
@@ -99,7 +122,42 @@ export const ReaderView = ({ config, setView, exportPDF, isExporting, blueprint,
     setActiveChapter(index);
     setSelectedVersionId('');
     setMobileMenuOpen(false);
+    setShowPreview(false);
   };
+
+  const getChapterStatus = (index) => {
+    const hasText = !!String(storyContent[index] || "").trim();
+    const hasImage = !!storyImages[index];
+    if (hasText && hasImage) return 'complete';
+    if (hasText) return 'text-only';
+    return 'empty';
+  };
+
+  const goToNextEmptyChapter = () => {
+    const nextEmpty = chapters.findIndex((_, i) => i > activeChapter && getChapterStatus(i) === 'empty');
+    if (nextEmpty !== -1) {
+      handleChapterChange(nextEmpty);
+    } else {
+      const firstEmpty = chapters.findIndex((_, i) => getChapterStatus(i) === 'empty');
+      if (firstEmpty !== -1) handleChapterChange(firstEmpty);
+    }
+  };
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.ctrlKey || e.metaKey) {
+        if (e.key === 'ArrowLeft' && activeChapter > 0) {
+          e.preventDefault();
+          handleChapterChange(activeChapter - 1);
+        } else if (e.key === 'ArrowRight' && activeChapter < chapters.length - 1) {
+          e.preventDefault();
+          handleChapterChange(activeChapter + 1);
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [activeChapter, chapters.length]);
 
   if (!chapters.length) {
     return (
@@ -126,7 +184,15 @@ export const ReaderView = ({ config, setView, exportPDF, isExporting, blueprint,
             <BookOpen className="w-6 h-6 text-purple-600 hidden sm:block" />
             <h1 className="font-serif font-bold text-slate-800 truncate max-w-[10rem] sm:max-w-md">{config.title}</h1>
          </div>
-         <div className="flex items-center gap-3 flex-wrap justify-end">
+         <div className="flex items-center gap-2 flex-wrap justify-end">
+            <button
+              onClick={goToNextEmptyChapter}
+              disabled={chapters.every((_, i) => getChapterStatus(i) !== 'empty')}
+              className="px-3 py-2 bg-white hover:bg-slate-50 text-slate-700 rounded-lg text-sm font-bold flex items-center gap-2 transition-all border border-slate-200 disabled:opacity-50 focus:ring-2 focus:ring-purple-500 outline-none"
+              title="Jump to next empty chapter (Ctrl+N)"
+            >
+              <ChevronRight className="w-4 h-4" /> <span className="hidden sm:inline">Next Empty</span>
+            </button>
             {config.onSave && (
               <button
                 onClick={config.onSave}
@@ -163,24 +229,31 @@ export const ReaderView = ({ config, setView, exportPDF, isExporting, blueprint,
           >
               <div className="h-full overflow-y-auto p-4 space-y-1">
                 <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3 px-2">Table of Contents</div>
-                {chapters.map((chap, i) => (
+                {chapters.map((chap, i) => {
+                  const status = getChapterStatus(i);
+                  return (
                     <button
                         key={i}
                         onClick={() => handleChapterChange(i)}
-                        className={`w-full text-left px-3 py-3 md:py-2 rounded-lg text-sm font-medium transition-all ${
+                        className={`w-full text-left px-3 py-3 md:py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2 ${
                             activeChapter === i ? 'bg-white shadow-sm text-purple-700 ring-1 ring-slate-200' : 'text-slate-600 hover:bg-white/50'
                         }`}
                         aria-current={activeChapter === i ? 'page' : undefined}
                     >
-                        <span className="opacity-50 mr-2">{i+1}.</span> {chap.title}
+                        <span className="opacity-50">{i+1}.</span>
+                        <span className="flex-1">{chap.title}</span>
+                        {status === 'complete' && <span className="w-2 h-2 rounded-full bg-green-500" title="Text + Image" />}
+                        {status === 'text-only' && <span className="w-2 h-2 rounded-full bg-yellow-500" title="Text only" />}
+                        {status === 'empty' && <span className="w-2 h-2 rounded-full bg-slate-300" title="Not started" />}
                     </button>
-                ))}
+                  );
+                })}
               </div>
           </nav>
 
           {/* Main Content */}
           <main className="flex-1 overflow-y-auto bg-slate-50/50 relative scroll-smooth">
-              <article className="max-w-3xl mx-auto py-8 sm:py-12 px-4 sm:px-8 min-h-full bg-white shadow-sm my-0 md:my-8 rounded-none md:rounded-xl border-x border-slate-100">
+              <article className="max-w-3xl mx-auto py-6 sm:py-10 px-4 sm:px-8 min-h-full bg-white shadow-sm my-0 md:my-8 rounded-none md:rounded-xl border-x border-slate-100">
 
                   {/* Chapter Header Image */}
                   {storyImages[activeChapter] ? (
@@ -200,23 +273,33 @@ export const ReaderView = ({ config, setView, exportPDF, isExporting, blueprint,
                       <h2 className="text-3xl md:text-4xl font-serif font-bold text-slate-900">{chapters[activeChapter]?.title || ""}</h2>
                   </header>
 
-                  <section className="mb-10 bg-white border border-slate-200 rounded-xl p-4" aria-label="Chapter Tools">
+                  <section className="mb-10 bg-white border border-slate-200 rounded-xl p-4 space-y-4" aria-label="Chapter Tools">
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                      <div className="text-xs font-bold text-slate-500 uppercase tracking-wider">Chapter Tools</div>
-                      <div className="flex flex-wrap gap-2">
+                      <div className="flex items-center gap-3">
+                        <div className="text-xs font-bold text-slate-500 uppercase tracking-wider">Chapter Tools</div>
                         <button
-                          onClick={() => onRegenerateChapterText?.(activeChapter)}
+                          onClick={() => setShowPreview(v => !v)}
+                          disabled={isChapterToolsWorking}
+                          className="text-xs px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded font-medium flex items-center gap-1 disabled:opacity-50 transition-colors"
+                          aria-expanded={showPreview}
+                        >
+                          <Eye className="w-3 h-3" /> {showPreview ? 'Hide' : 'Preview'}
+                        </button>
+                      </div>
+                      <div className="flex flex-wrap gap-3 sm:gap-2">
+                        <button
+                          onClick={() => onGenerateChapterText?.(activeChapter)}
                           disabled={isChapterToolsWorking}
                           className="px-3 py-2 bg-slate-900 hover:bg-black text-white rounded-lg text-sm font-bold flex items-center gap-2 disabled:opacity-50 transition-colors focus:ring-2 focus:ring-offset-1 focus:ring-slate-900 outline-none"
-                          aria-label="Regenerate Text"
+                          aria-label="Generate or Regenerate Text"
                         >
-                          <RefreshCcw className="w-4 h-4" /> <span className="hidden sm:inline">Regenerate</span>
+                          <RefreshCcw className="w-4 h-4" /> <span className="hidden sm:inline">Generate Text</span>
                         </button>
                         <button
                           onClick={() => onRegenerateIllustration?.(activeChapter)}
                           disabled={isChapterToolsWorking}
                           className="px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm font-bold flex items-center gap-2 disabled:opacity-50 transition-colors focus:ring-2 focus:ring-offset-1 focus:ring-purple-600 outline-none"
-                          aria-label="Regenerate Image"
+                          aria-label="Generate or Regenerate Image"
                         >
                           <ImageIcon className="w-4 h-4" /> <span className="hidden sm:inline">Image</span>
                         </button>
@@ -236,10 +319,86 @@ export const ReaderView = ({ config, setView, exportPDF, isExporting, blueprint,
                         >
                           History
                         </button>
+                        {onGenerateAllRemaining && (
+                          <button
+                            onClick={onGenerateAllRemaining}
+                            disabled={isChapterToolsWorking || chapters.every((_, i) => getChapterStatus(i) !== 'empty')}
+                            className="px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm font-bold flex items-center gap-2 disabled:opacity-50 transition-colors focus:ring-2 focus:ring-purple-600 outline-none"
+                          >
+                            <Zap className="w-4 h-4" /> <span className="hidden sm:inline">Generate All</span>
+                          </button>
+                        )}
                       </div>
                     </div>
 
-                    {rewriteOpen && (
+                    {showPreview && (
+                      <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 space-y-3 text-sm">
+                        <div>
+                          <div className="font-bold text-slate-700 mb-1">Blueprint Summary</div>
+                          <p className="text-slate-600 leading-relaxed">{chapters[activeChapter]?.summary}</p>
+                        </div>
+                        {activeChapter > 0 && storyContent[activeChapter - 1] && (
+                          <div>
+                            <div className="font-bold text-slate-700 mb-1">Previous Chapter Ending</div>
+                            <p className="text-slate-600 leading-relaxed italic line-clamp-3">
+                              ...{String(storyContent[activeChapter - 1]).slice(-300)}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block" htmlFor="chapter-guidance">Chapter guidance</label>
+                          <select
+                            value=""
+                            onChange={(e) => e.target.value && onUpdateChapterGuidance?.(activeChapter, e.target.value)}
+                            disabled={isChapterToolsWorking}
+                            className="text-xs px-2 py-1 bg-slate-50 border border-slate-200 rounded outline-none focus:ring-1 focus:ring-purple-500"
+                          >
+                            {chapterGuidanceTemplates?.map((t, i) => (
+                              <option key={i} value={t.value}>{t.label}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <textarea
+                          id="chapter-guidance"
+                          value={chapterGuidance?.[activeChapter] || ""}
+                          onChange={(e) => onUpdateChapterGuidance?.(activeChapter, e.target.value)}
+                          placeholder="Tone, beat focus, things to include/avoid for this chapter..."
+                          disabled={isChapterToolsWorking}
+                          className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-purple-500 transition-all h-20 resize-none"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block" htmlFor="image-guidance">Image guidance</label>
+                          <select
+                            value=""
+                            onChange={(e) => e.target.value && onUpdateImageGuidance?.(activeChapter, e.target.value)}
+                            disabled={isChapterToolsWorking}
+                            className="text-xs px-2 py-1 bg-slate-50 border border-slate-200 rounded outline-none focus:ring-1 focus:ring-purple-500"
+                          >
+                            {imageGuidanceTemplates?.map((t, i) => (
+                              <option key={i} value={t.value}>{t.label}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <textarea
+                          id="image-guidance"
+                          value={imageGuidance?.[activeChapter] || ""}
+                          onChange={(e) => onUpdateImageGuidance?.(activeChapter, e.target.value)}
+                          placeholder="Describe the shot: focal moment, mood, lighting, POV..."
+                          disabled={isChapterToolsWorking}
+                          className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-purple-500 transition-all h-20 resize-none"
+                        />
+                      </div>
+                    </div>
+                  </section>
+
+                  {rewriteOpen && (
                       <form
                         className="mt-4 animate-in fade-in slide-in-from-top-2"
                         onSubmit={(e) => {
@@ -280,7 +439,7 @@ export const ReaderView = ({ config, setView, exportPDF, isExporting, blueprint,
                     )}
 
                     {historyOpen && (
-                      <div className="mt-4 animate-in fade-in slide-in-from-top-2">
+                      <div className="animate-in fade-in slide-in-from-top-2">
                         <div className="text-xs font-bold text-slate-500 uppercase tracking-wider">Version history</div>
                         <p className="text-sm text-slate-500 mt-1">Restore a previous version of this chapter.</p>
 

@@ -1,7 +1,7 @@
 import React from 'react';
 import { Wand2, StopCircle } from 'lucide-react';
 
-export const LoadingView = ({ loadingMessage, view, blueprint, currentChapterGenIndex, onAbort }) => (
+export const LoadingView = ({ loadingMessage, onAbort }) => (
   <div className="flex flex-col items-center justify-center min-h-[50vh] animate-in fade-in">
     <div className="relative">
       <div className="absolute inset-0 bg-purple-500 blur-xl opacity-20 rounded-full animate-pulse"></div>
@@ -9,15 +9,6 @@ export const LoadingView = ({ loadingMessage, view, blueprint, currentChapterGen
     </div>
     <h2 className="mt-8 text-2xl font-serif font-bold text-slate-800">Forging Story</h2>
     <p className="text-slate-500 mt-2 italic">{loadingMessage}</p>
-
-    {view === 'drafting' && blueprint && (
-      <div className="mt-8 w-64 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-        <div
-          className="h-full bg-purple-600 transition-all duration-700 ease-out"
-          style={{ width: `${((currentChapterGenIndex) / blueprint.chapters.length) * 100}%` }}
-        />
-      </div>
-    )}
 
     <button
       onClick={onAbort}

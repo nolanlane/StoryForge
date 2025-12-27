@@ -8,6 +8,7 @@ from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
 
 from .auth import create_access_token, get_current_user, hash_password, verify_password
 from .config import settings
@@ -197,6 +198,8 @@ async def ai_text(
             json_mode=req.jsonMode,
             timeout_s=timeout_s,
             generation_config=req.generationConfig,
+            text_model=req.textModel,
+            text_fallback_model=req.textFallbackModel,
         )
         return AiTextResponse(text=text)
     except Exception as e:
@@ -225,6 +228,7 @@ async def ai_chapter(
         chapter_summary=chapter_info.get("summary", ""),
         previous_chapter_text=req.previousChapterText,
         config=req.config,
+        chapter_guidance=req.chapterGuidance,
     )
 
     try:
@@ -234,6 +238,8 @@ async def ai_chapter(
             json_mode=False,
             timeout_s=timeout_s,
             generation_config=req.generationConfig,
+            text_model=req.textModel,
+            text_fallback_model=req.textFallbackModel,
         )
         return AiTextResponse(text=text)
     except Exception as e:
@@ -277,7 +283,13 @@ async def ai_imagen(
 ) -> AiImagenResponse:
     timeout_s = (req.timeoutMs / 1000.0) if req.timeoutMs else None
     try:
-        data_url = await gemini_generate_image(prompt=req.prompt, timeout_s=timeout_s)
+        data_url = await gemini_generate_image(
+            prompt=req.prompt,
+            timeout_s=timeout_s,
+            imagen_model=req.imagenModel,
+        )
+        if not data_url:
+            raise HTTPException(status_code=502, detail="AI provider returned no image")
         return AiImagenResponse(dataUrl=data_url)
     except Exception as e:
         logger.error("AI Image Generation failed (%s)", type(e).__name__)

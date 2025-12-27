@@ -24,6 +24,7 @@ def construct_chapter_user_prompt(
     chapter_summary: str,
     previous_chapter_text: str,
     config: dict,
+    chapter_guidance: str | None = None,
 ) -> str:
     """
     Constructs the user prompt for generating a chapter, including the consistency check.
@@ -38,14 +39,19 @@ def construct_chapter_user_prompt(
     if progress == 1:
         tension = "Resolution (Falling Action)"
 
+    safe_previous = previous_chapter_text or ""
     if chapter_index > 0:
-        context = f"""PREVIOUS SCENE ENDING: "...{previous_chapter_text[-2500:]}"\n\nCONTINUITY INSTRUCTIONS:\n- Resume IMMEDIATELY from the moment above.\n- Maintain the mood/atmosphere established."""
+        context = f"""PREVIOUS SCENE ENDING: "...{safe_previous[-2500:]}"\n\nCONTINUITY INSTRUCTIONS:\n- Resume IMMEDIATELY from the moment above.\n- Maintain the mood/atmosphere established."""
     else:
         context = "START OF STORY. Establish the setting and sensory details immediately."
     
     next_summary = blueprint.get("chapters", [])[chapter_index + 1]["summary"] if chapter_index < total_chapters - 1 else "The End."
 
-    return f"""---\nSTORY BIBLE CHECK: Before writing, review the Story Bible below. Ensure the characters' actions and descriptions in the new chapter are perfectly consistent with their established traits and the overall plot. Do not contradict the bible.\n---\nStory Bible anchor:\n- Central conflict: {blueprint.get("central_conflict_engine")}\n- Synopsis: {blueprint.get("synopsis", "")}\n- Cast: {" | ".join(blueprint.get("characters", []))}\n- Avoid: {config.get("avoid")}\n\nChapter {chapter_index + 1}/{total_chapters}: "{chapter_title}"\nBeats (what must happen): {chapter_summary}\nTension: {tension}\nLead-in target (next chapter direction): {next_summary}\n\nContinuity context:\n{context}\n\nLength: 900–1400 words. Tight, no filler.\n\nWrite the next chapter of this novel.\n"""
+    steering = config.get("steeringNote") or ""
+    steering_block = f"\nSteering note (user priority): {steering}\n" if steering else ""
+    guidance_block = f"Chapter-specific guidance: {chapter_guidance}\n" if chapter_guidance else ""
+
+    return f"""---\nSTORY BIBLE CHECK: Before writing, review the Story Bible below. Ensure the characters' actions and descriptions in the new chapter are perfectly consistent with their established traits and the overall plot. Do not contradict the bible.\n---\nStory Bible anchor:\n- Central conflict: {blueprint.get("central_conflict_engine")}\n- Synopsis: {blueprint.get("synopsis", "")}\n- Cast: {" | ".join(blueprint.get("characters", []))}\n- Avoid: {config.get("avoid")}{steering_block}{guidance_block}\n\nChapter {chapter_index + 1}/{total_chapters}: "{chapter_title}"\nBeats (what must happen): {chapter_summary}\nTension: {tension}\nLead-in target (next chapter direction): {next_summary}\n\nContinuity context:\n{context}\n\nLength: 900–1400 words. Tight, no filler.\n\nWrite the next chapter of this novel.\n"""
 
 def get_story_doctor_system_prompt() -> str:
     """

@@ -1,12 +1,31 @@
 import httpx
 import logging
 import asyncio
+import random
+import time
 
 from .config import settings
 
 logger = logging.getLogger(__name__)
 
-RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
+RETRYABLE_STATUS_CODES = {408, 425, 429, 500, 502, 503, 504}
+
+TEXT_MODEL_ALLOWLIST: dict[str, str] = {
+    "gemini-3-pro": "Gemini 3 Pro (preview) – reasoning, long context",
+    "gemini-3-flash": "Gemini 3 Flash (preview) – speed-focused multimodal",
+    "gemini-2.5-pro": "Gemini 2.5 Pro – high-quality reasoning, long context",
+    "gemini-2.5-flash": "Gemini 2.5 Flash – balanced price/perf, fast",
+    "gemini-2.5-flash-lite": "Gemini 2.5 Flash-Lite – cost-optimized",
+    "gemini-2.0-flash": "Gemini 2.0 Flash – previous-gen fast model",
+    "gemini-2.0-flash-001": "Gemini 2.0 Flash stable variant",
+    "gemini-2.0-flash-exp": "Gemini 2.0 Flash experimental",
+}
+
+IMAGE_MODEL_ALLOWLIST: dict[str, str] = {
+    "gemini-2.5-flash-image": "Gemini 2.5 Flash Image – stable image+text",
+    "gemini-2.5-flash-image-preview": "Gemini 2.5 Flash Image Preview (deprecated)",
+    "gemini-2.0-flash-preview-image-generation": "Gemini 2.0 Flash Preview Image Generation",
+}
 
 
 def _extract_text_from_parts(parts) -> str:
@@ -93,14 +112,20 @@ def _sanitize_generation_config(generation_config: dict | None) -> dict:
 
 
 def _text_url_for_model(model: str) -> str:
+    if model not in TEXT_MODEL_ALLOWLIST:
+        raise ValueError(f"Unsupported text model '{model}'. Allowed: {', '.join(TEXT_MODEL_ALLOWLIST)}")
     return f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
 
-def _imagen_url() -> str:
-    if "gemini" in settings.imagen_model.lower():
+def _imagen_url(model: str) -> str:
+    if model not in IMAGE_MODEL_ALLOWLIST:
+        raise ValueError(
+            f"Unsupported image model '{model}'. Allowed: {', '.join(IMAGE_MODEL_ALLOWLIST)}"
+        )
+    if "gemini" in model.lower():
         # Gemini models use the generateContent endpoint even for images
-        return f"https://generativelanguage.googleapis.com/v1beta/models/{settings.imagen_model}:generateContent"
-    return f"https://generativelanguage.googleapis.com/v1beta/models/{settings.imagen_model}:predict"
+        return f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+    return f"https://generativelanguage.googleapis.com/v1beta/models/{model}:predict"
 
 
 def clean_image_prompt(base_prompt: str) -> str:
@@ -117,20 +142,28 @@ async def _execute_with_retry(
 ) -> dict:
     effective_timeout_s = float(timeout_s) if timeout_s else 180.0
     timeout = httpx.Timeout(effective_timeout_s)
+    start_ts = time.monotonic()
 
     for attempt in range(max_retries):
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:
                 res = await client.post(url, json=payload, headers=headers)
-                logger.info(f"[Gemini] Response status: {res.status_code}")
+                elapsed = time.monotonic() - start_ts
+                logger.info(
+                    "[Gemini] Response status=%s model=%s attempt=%s elapsed=%.2fs",
+                    res.status_code,
+                    log_model_name,
+                    attempt + 1,
+                    elapsed,
+                )
 
                 if (
                     res.status_code in RETRYABLE_STATUS_CODES
                     and attempt < max_retries - 1
                 ):
-                    wait_time = 2**attempt
+                    wait_time = (2**attempt) * random.uniform(0.5, 1.5)
                     logger.warning(
-                        "[Gemini] Got %s from model=%s, retrying in %ss (attempt %s/%s) %s",
+                        "[Gemini] Got %s from model=%s, retrying in %.2fs (attempt %s/%s) %s",
                         res.status_code,
                         log_model_name,
                         wait_time,
@@ -142,6 +175,12 @@ async def _execute_with_retry(
                     continue
 
                 res.raise_for_status()
+                logger.info(
+                    "[Gemini] Success model=%s attempts=%s total_elapsed=%.2fs",
+                    log_model_name,
+                    attempt + 1,
+                    elapsed,
+                )
                 return res.json()
         except httpx.HTTPStatusError as e:
             detail = _safe_error_detail(e.response)
@@ -188,9 +227,9 @@ async def _execute_with_retry(
                 str(e)[:300],
             )
             if attempt < max_retries - 1:
-                wait_time = 2**attempt
+                wait_time = (2**attempt) * random.uniform(0.5, 1.5)
                 logger.warning(
-                    "[Gemini] Retrying after network error in %ss (attempt %s/%s)",
+                    "[Gemini] Retrying after network error in %.2fs (attempt %s/%s)",
                     wait_time,
                     attempt + 1,
                     max_retries,
@@ -294,9 +333,11 @@ async def gemini_generate_text(
     json_mode: bool,
     timeout_s: float | None,
     generation_config: dict | None,
+    text_model: str | None = None,
+    text_fallback_model: str | None = None,
 ) -> str:
-    primary = settings.gemini_text_model
-    fallback = getattr(settings, "gemini_text_fallback_model", "") or ""
+    primary = text_model or settings.gemini_text_model
+    fallback = (text_fallback_model or getattr(settings, "gemini_text_fallback_model", "") or "").strip()
     models: list[str] = [primary]
     if fallback and fallback != primary:
         models.append(fallback)
@@ -313,15 +354,28 @@ async def gemini_generate_text(
                 generation_config=generation_config,
             )
         except httpx.HTTPStatusError as e:
+            status = e.response.status_code if e.response is not None else None
             if (
-                e.response is not None
-                and e.response.status_code == 404
+                status in {404}
                 and i < len(models) - 1
             ):
                 logger.warning(
-                    "[Gemini] Falling back from model=%s to model=%s due to 404",
+                    "[Gemini] Falling back from model=%s to model=%s due to status=%s",
                     model,
                     models[i + 1],
+                    status,
+                )
+                last_err = e
+                continue
+            if (
+                status in RETRYABLE_STATUS_CODES
+                and i < len(models) - 1
+            ):
+                logger.warning(
+                    "[Gemini] Falling back from model=%s to model=%s due to retryable status=%s",
+                    model,
+                    models[i + 1],
+                    status,
                 )
                 last_err = e
                 continue
@@ -337,14 +391,35 @@ async def gemini_generate_text(
                 last_err = e
                 continue
             last_err = e
+        except httpx.RequestError as e:
+            if i < len(models) - 1:
+                logger.warning(
+                    "[Gemini] Falling back from model=%s to model=%s due to network error (%s)",
+                    model,
+                    models[i + 1],
+                    type(e).__name__,
+                )
+                last_err = e
+                continue
+            last_err = e
 
     if last_err:
         raise last_err
     raise Exception("Gemini text generation failed")
 
 
-async def gemini_generate_image(*, prompt: str, timeout_s: float | None) -> str | None:
-    is_gemini_model = "gemini" in settings.imagen_model.lower()
+async def gemini_generate_image(
+    *,
+    prompt: str,
+    timeout_s: float | None,
+    imagen_model: str | None = None,
+) -> str | None:
+    selected_model = (imagen_model or settings.imagen_model).strip()
+    if selected_model not in IMAGE_MODEL_ALLOWLIST:
+        raise ValueError(
+            f"Unsupported image model '{selected_model}'. Allowed: {', '.join(IMAGE_MODEL_ALLOWLIST)}"
+        )
+    is_gemini_model = "gemini" in selected_model.lower()
     cleaned_prompt = clean_image_prompt(prompt)
 
     if is_gemini_model:
@@ -371,7 +446,7 @@ async def gemini_generate_image(*, prompt: str, timeout_s: float | None) -> str 
     )
     logger.info(
         "[Imagen] Calling predict/generate model=%s timeout_s=%s gemini_mode=%s",
-        settings.imagen_model,
+        selected_model,
         effective_timeout_s,
         is_gemini_model,
     )
@@ -380,11 +455,11 @@ async def gemini_generate_image(*, prompt: str, timeout_s: float | None) -> str 
 
     try:
         data = await _execute_with_retry(
-            url=_imagen_url(),
+            url=_imagen_url(selected_model),
             payload=payload,
             headers=headers,
             timeout_s=effective_timeout_s,
-            log_model_name=settings.imagen_model,
+            log_model_name=selected_model,
         )
 
         if is_gemini_model:
@@ -413,7 +488,7 @@ async def gemini_generate_image(*, prompt: str, timeout_s: float | None) -> str 
             base64_data = (data.get("predictions", [{}])[0] or {}).get("bytesBase64Encoded")
             if not base64_data:
                 logger.error(
-                    "[Imagen] No image bytes returned model=%s", settings.imagen_model
+                    "[Imagen] No image bytes returned model=%s", selected_model
                 )
                 return None
             return f"data:image/png;base64,{base64_data}"

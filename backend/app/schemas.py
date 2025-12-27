@@ -58,6 +58,8 @@ class AiTextRequest(BaseModel):
     jsonMode: bool = False
     timeoutMs: int | None = Field(default=None, ge=1000, le=300000)
     generationConfig: dict | None = None
+    textModel: str | None = None
+    textFallbackModel: str | None = None
 
 
 class AiTextResponse(BaseModel):
@@ -66,11 +68,14 @@ class AiTextResponse(BaseModel):
 
 class AiChapterRequest(BaseModel):
     blueprint: dict
-    chapterIndex: int = Field(ge=0, le=100)
-    previousChapterText: str = Field(default="", max_length=5000)
-    config: dict
+    chapterIndex: int = Field(ge=0, le=1000)
+    previousChapterText: str | None = Field(default=None, max_length=50_000)
+    chapterGuidance: str | None = Field(default=None, max_length=2000)
     timeoutMs: int | None = Field(default=None, ge=1000, le=300000)
+    config: dict
     generationConfig: dict | None = None
+    textModel: str | None = None
+    textFallbackModel: str | None = None
 
     @field_validator("blueprint")
     @classmethod
@@ -141,6 +146,7 @@ class AiStoryDoctorResponse(BaseModel):
 class AiImagenRequest(BaseModel):
     prompt: str = Field(max_length=8000)
     timeoutMs: int | None = Field(default=None, ge=1000, le=60000)
+    imagenModel: str | None = None
 
 
 class AiImagenResponse(BaseModel):

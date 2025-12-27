@@ -3,7 +3,7 @@ import { useRef, useCallback } from 'react';
 export function useStoryEngine(apiFetch, requireAuth) {
   const abortControllerRef = useRef(null);
 
-  const callGeminiText = useCallback(async (systemPrompt, userPrompt, jsonMode = false, customTimeout, generationConfig) => {
+  const callGeminiText = useCallback(async (systemPrompt, userPrompt, jsonMode = false, customTimeout, generationConfig, textModel, textFallbackModel) => {
     try {
       if (!requireAuth()) return "";
       const timeoutMs = customTimeout || 180000;
@@ -14,7 +14,9 @@ export function useStoryEngine(apiFetch, requireAuth) {
           userPrompt,
           jsonMode,
           timeoutMs,
-          generationConfig
+          generationConfig,
+          textModel,
+          textFallbackModel,
         }),
         timeoutMs,
         signal: abortControllerRef.current?.signal
@@ -26,13 +28,13 @@ export function useStoryEngine(apiFetch, requireAuth) {
     }
   }, [apiFetch, requireAuth]);
 
-  const callImagen = useCallback(async (prompt) => {
+  const callImagen = useCallback(async (prompt, imagenModel) => {
     try {
       if (!requireAuth()) return null;
       const timeoutMs = 45000;
       const result = await apiFetch('/api/ai/imagen', {
         method: 'POST',
-        body: JSON.stringify({ prompt, timeoutMs }),
+        body: JSON.stringify({ prompt, timeoutMs, imagenModel }),
         timeoutMs,
         signal: abortControllerRef.current?.signal
       });
@@ -45,7 +47,7 @@ export function useStoryEngine(apiFetch, requireAuth) {
     }
   }, [apiFetch, requireAuth]);
 
-  const callAiChapter = useCallback(async (blueprint, chapterIndex, previousChapterText, config, customTimeout) => {
+  const callAiChapter = useCallback(async (blueprint, chapterIndex, previousChapterText, config, customTimeout, chapterGuidance) => {
     try {
       if (!requireAuth()) return "";
       const timeoutMs = customTimeout || 180000;
@@ -56,7 +58,11 @@ export function useStoryEngine(apiFetch, requireAuth) {
           chapterIndex,
           previousChapterText,
           config,
-          timeoutMs
+          chapterGuidance,
+          timeoutMs,
+          generationConfig: config?.generationConfig,
+          textModel: config?.textModel,
+          textFallbackModel: config?.textFallbackModel,
         }),
         timeoutMs,
         signal: abortControllerRef.current?.signal

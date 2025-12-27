@@ -9,12 +9,12 @@ import { ReaderView } from './components/ReaderView';
 import { useStoryForgeApi } from './hooks/useStoryForgeApi';
 import { useStoryEngine } from './hooks/useStoryEngine';
 
-import { PDF_LIB_URL, STORAGE_KEYS, BANNED_PHRASES, BANNED_DESCRIPTOR_TOKENS } from './lib/constants';
+import { PDF_LIB_URL, STORAGE_KEYS, BANNED_PHRASES, BANNED_DESCRIPTOR_TOKENS, GENERATION_MODES, CHAPTER_GUIDANCE_TEMPLATES, IMAGE_GUIDANCE_TEMPLATES } from './lib/constants';
 import { extractJSON, makeId } from './lib/utils';
 
 export default function App() {
   // --- Custom Hooks ---
-  const { authToken, setAuthToken, userEmail, setUserEmail, apiFetch, requireAuth, logout } = useStoryForgeApi();
+  const { authToken, setAuthToken, userEmail, setUserEmail, apiFetch, requireAuth, logout, storyDoctor } = useStoryForgeApi();
   const { callGeminiText, callImagen, callAiChapter, stopGeneration, startGeneration, abortControllerRef } = useStoryEngine(apiFetch, requireAuth);
 
   // --- State ---
@@ -51,14 +51,36 @@ export default function App() {
     avoid: "Clichés, generic tropes, flat characters",
     prompt: "",
     author: "AI Author",
-    chapterCount: 5
+    chapterCount: 5,
+    textModel: "gemini-2.5-flash",
+    textFallbackModel: "gemini-2.5-pro",
+    imagenModel: "gemini-2.5-flash-image",
+    generationConfig: {},
+    generationMode: "balanced",
+    steeringNote: "",
+    imageStylePreset: "",
   });
 
   // Data Containers
   const [blueprint, setBlueprint] = useState(null); 
   const [storyContent, setStoryContent] = useState({}); 
   const [storyImages, setStoryImages] = useState({}); 
-  const [currentChapterGenIndex, setCurrentChapterGenIndex] = useState(0);
+  const [chapterGuidance, setChapterGuidance] = useState(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.chapterGuidance);
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
+  const [imageGuidance, setImageGuidance] = useState(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.imageGuidance);
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
 
   const handleAuthError = (msg) => {
     setError(msg);
@@ -151,12 +173,21 @@ Tone: ${tone}
 Write the concept now. Complete sentences only.`;
     
     try {
-        const text = await callGeminiText(systemPrompt, userPrompt, false, 45000, {
-          temperature: 0.9,
-          topP: 0.95,
-          topK: 40,
-          maxOutputTokens: 2048
-        });
+        const text = await callGeminiText(
+          systemPrompt,
+          userPrompt,
+          false,
+          45000,
+          {
+            temperature: 0.9,
+            topP: 0.95,
+            topK: 40,
+            maxOutputTokens: 2048,
+            ...(config.generationConfig || {})
+          },
+          config.textModel,
+          config.textFallbackModel
+        );
         if (text) {
             setConfig(prev => ({ ...prev, prompt: text.trim() }));
         } else {
@@ -169,6 +200,21 @@ Write the concept now. Complete sentences only.`;
   };
 
   // --- Phase 1: The Architect (Blueprint) ---
+  const resolveGenerationConfig = useCallback(() => {
+    const mode = GENERATION_MODES.find((m) => m.value === config.generationMode);
+    const base = mode?.generationConfig || {};
+    return { ...base, ...(config.generationConfig || {}) };
+  }, [config.generationMode, config.generationConfig]);
+
+  const withImageStyle = useCallback(
+    (prompt) => {
+      if (!config.imageStylePreset) return prompt;
+      const styleLabel = config.imageStylePreset;
+      return `${prompt} Style: ${styleLabel}.`;
+    },
+    [config.imageStylePreset]
+  );
+
   const generateBlueprint = async () => {
     if (!requireAuth()) {
         handleAuthError("Please sign in first.");
@@ -214,12 +260,21 @@ Concept: <concept>${config.prompt || "A unique twist on the genre."}</concept>
 Avoid: <avoid>${config.avoid}</avoid>`;
 
     try {
-      const text = await callGeminiText(systemPrompt, userPrompt, true, 180000, {
-        temperature: 0.9,
-        topP: 0.95,
-        topK: 64,
-        maxOutputTokens: 8192
-      });
+      const text = await callGeminiText(
+        systemPrompt,
+        userPrompt,
+        true,
+        180000,
+        {
+          ...resolveGenerationConfig(),
+          temperature: (resolveGenerationConfig().temperature ?? 0.9),
+          topP: (resolveGenerationConfig().topP ?? 0.95),
+          topK: (resolveGenerationConfig().topK ?? 64),
+          maxOutputTokens: resolveGenerationConfig().maxOutputTokens ?? 8192,
+        },
+        config.textModel,
+        config.textFallbackModel
+      );
       if (!text) return; // Aborted
 
       const data = extractJSON(text);
@@ -242,7 +297,7 @@ Avoid: <avoid>${config.avoid}</avoid>`;
       Composition: cinematic, rule of thirds, clear focal point, readable silhouette.
       No text.`;
       
-      const coverImg = await callImagen(coverPrompt);
+      const coverImg = await callImagen(withImageStyle(coverPrompt), config.imagenModel);
       if (coverImg) setStoryImages(prev => ({ ...prev, cover: coverImg }));
 
       setView('blueprint');
@@ -261,15 +316,15 @@ Avoid: <avoid>${config.avoid}</avoid>`;
         handleAuthError("Please sign in first.");
         return;
     }
-    const signal = startGeneration();
-
-    setView('drafting');
-    setCurrentChapterGenIndex(0);
+    // Reset drafting state; user drives chapter-by-chapter
+    stopGeneration();
+    setView('reading');
     setStoryContent({});
     setStoryImages(prev => ({ cover: prev.cover }));
-    
-    // Start recursive generation
-    generateChapter(0, {}, signal);
+    setChapterGuidance({});
+    setImageGuidance({});
+    setLoading(false);
+    setLoadingMessage("");
   };
 
   const handleStopGeneration = () => {
@@ -338,7 +393,7 @@ Avoid: <avoid>${config.avoid}</avoid>`;
     });
   };
 
-  const regenerateChapterText = async (index) => {
+  const generateOrRegenerateChapterText = async (index) => {
     if (!requireAuth()) {
         handleAuthError("Please sign in first.");
         return;
@@ -347,18 +402,27 @@ Avoid: <avoid>${config.avoid}</avoid>`;
     const chap = blueprint.chapters[index];
     if (!chap) return;
 
-    await withChapterTools(`Regenerating Ch ${index + 1}...`, async () => {
+    const hasExisting = !!String(storyContent[index] || "").trim();
+    await withChapterTools(`${hasExisting ? "Regenerating" : "Generating"} Ch ${index + 1}...`, async () => {
       const current = storyContent[index] || "";
-      snapshotChapterVersion(index, current, "Before regenerate");
+      if (hasExisting) snapshotChapterVersion(index, current, "Before regenerate");
 
       const prevText = index > 0 ? (storyContent[index - 1] || "") : null;
+      const guidance = chapterGuidance?.[index] || "";
 
       try {
-        const text = await callAiChapter(blueprint, index, prevText, config, 180000);
+        const text = await callAiChapter(
+          blueprint,
+          index,
+          prevText,
+          { ...config, generationConfig: resolveGenerationConfig() },
+          180000,
+          guidance
+        );
         if (!text) return;
         setStoryContent(prev => ({ ...prev, [index]: text }));
       } catch (e) {
-        setError(`Regenerate failed: ${e.message}`);
+        setError(`${hasExisting ? "Regenerate" : "Generate"} failed: ${e.message}`);
       }
     });
   };
@@ -413,12 +477,20 @@ ${original}
 Return the revised chapter now.`;
 
       try {
-        const text = await callGeminiText(systemPrompt, userPrompt, false, 180000, {
-          temperature: 0.6,
-          topP: 0.95,
-          topK: 64,
-          maxOutputTokens: 8192
-        });
+        const text = await callGeminiText(
+          systemPrompt,
+          userPrompt,
+          false,
+          180000,
+          {
+            temperature: 0.6,
+            topP: 0.95,
+            topK: 64,
+            maxOutputTokens: 8192
+          },
+          config.textModel,
+          config.textFallbackModel
+        );
         if (!text) return;
         setStoryContent(prevMap => ({ ...prevMap, [index]: text }));
       } catch (e) {
@@ -457,15 +529,29 @@ ${String(text).slice(0, 1200)}
 
 Describe the illustration.`;
 
-        const imgPrompt = await callGeminiText(imgSystemPrompt, imgUserPrompt, false, 30000, {
-          temperature: 0.75,
-          topP: 0.9,
-          topK: 40,
-          maxOutputTokens: 512
-        });
+        const imgPrompt = await callGeminiText(
+          imgSystemPrompt,
+          imgUserPrompt,
+          false,
+          30000,
+          {
+            temperature: 0.75,
+            topP: 0.9,
+            topK: 40,
+            maxOutputTokens: 512
+          },
+          config.textModel,
+          config.textFallbackModel
+        );
         if (!imgPrompt) return;
 
-        const img = await callImagen(`${imgPrompt} Visual DNA: ${blueprint.visual_dna}. Art style: ${config.artStyle}.`);
+        const visualGuide = imageGuidance?.[index];
+        const img = await callImagen(
+          withImageStyle(
+            `${imgPrompt}${visualGuide ? ` User visual guidance: ${visualGuide}.` : ""} Visual DNA: ${blueprint.visual_dna}. Art style: ${config.artStyle}.`
+          ),
+          config.imagenModel
+        );
         if (img) setStoryImages(prev => ({ ...prev, [index]: img }));
       } catch (e) {
         setError(`Illustration failed: ${e.message}`);
@@ -473,87 +559,70 @@ Describe the illustration.`;
     });
   };
 
-  const generateChapter = async (index, currentContentMap, signal) => {
-    if (signal.aborted) return;
+  // Manual, per-chapter drafting replaces the old auto-recursive generator.
 
-    if (!blueprint || index >= blueprint.chapters.length) {
-      setView('reading');
-      setLoading(false);
+  const updateChapterGuidance = (index, value) => {
+    setChapterGuidance(prev => {
+      const next = { ...(prev || {}), [index]: value };
+      localStorage.setItem(STORAGE_KEYS.chapterGuidance, JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const updateImageGuidance = (index, value) => {
+    setImageGuidance(prev => {
+      const next = { ...(prev || {}), [index]: value };
+      localStorage.setItem(STORAGE_KEYS.imageGuidance, JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const generateAllRemaining = async () => {
+    if (!requireAuth()) {
+      handleAuthError("Please sign in first.");
+      return;
+    }
+    if (!blueprint?.chapters?.length) return;
+
+    const emptyChapters = blueprint.chapters
+      .map((_, i) => i)
+      .filter(i => !String(storyContent[i] || "").trim());
+
+    if (emptyChapters.length === 0) {
+      setError("All chapters already have text.");
       return;
     }
 
-    const chap = blueprint.chapters[index];
     setLoading(true);
-    setLoadingMessage(`Writing Ch ${index + 1}: ${chap.title}...`);
+    setError(null);
 
-    const prevText = index > 0 ? (currentContentMap[index - 1] || "") : null;
+    for (const index of emptyChapters) {
+      if (abortControllerRef.current?.signal.aborted) break;
 
-    try {
-      // 90s Timeout for Chapter Text
-      const text = await callAiChapter(blueprint, index, prevText, config, 180000);
+      setLoadingMessage(`Generating Ch ${index + 1}: ${blueprint.chapters[index].title}...`);
+      const prevText = index > 0 ? (storyContent[index - 1] || "") : null;
+      const guidance = chapterGuidance?.[index] || "";
 
-      if (!text && signal.aborted) return;
-
-      const newContentMap = { ...currentContentMap, [index]: text };
-      setStoryContent(prev => ({
-        ...(prev || {}),
-        ...newContentMap,
-        __history: (prev && typeof prev === 'object') ? prev.__history : undefined
-      }));
-
-      // 2. Paint Image (Safe Block)
       try {
-          setLoadingMessage(`Illustrating Ch ${index + 1}...`);
-          
-          const visualContext = blueprint.character_visuals ? JSON.stringify(blueprint.character_visuals) : "No specific character details.";
-
-          const imgSystemPrompt = `You're an art director describing a single frame from this chapter for an illustrator.
-
-Pick the most visually striking moment. Describe what the camera sees: who's in frame, what they're doing, the environment, the lighting. Be specific and cinematic.
-
-One to two sentences. No text or words in the image.`;
-
-          const imgUserPrompt = `Visual style: ${blueprint.visual_dna}
-Characters: ${visualContext}
-
-Chapter excerpt:
-${text.slice(0, 1200)}
-
-Describe the illustration.`;
-          
-          // 15s Timeout for Image Description (Fail Fast!)
-          const imgPrompt = await callGeminiText(imgSystemPrompt, imgUserPrompt, false, 30000, {
-            temperature: 0.75,
-            topP: 0.9,
-            topK: 40,
-            maxOutputTokens: 1024
-          });
-          
-          if (!imgPrompt && signal.aborted) return; // Stop if aborted
-          
-          if (imgPrompt) {
-             const img = await callImagen(`${imgPrompt} Visual DNA: ${blueprint.visual_dna}. Art style: ${config.artStyle}.`);
-             if (img) setStoryImages(prev => ({ ...prev, [index]: img }));
-          }
-      } catch (imgErr) {
-          console.warn(`Illustration failed for Ch ${index + 1}, continuing story...`, imgErr);
-          // Do not stop the story! Just skip image.
-      }
-
-      // 3. Recurse
-      setCurrentChapterGenIndex(index + 1);
-      await generateChapter(index + 1, newContentMap, signal);
-
-    } catch (err) {
-      // Handle User Abort (Silent) vs System Error (Visible)
-      if (err.name === 'AbortError') {
-         // User stopped - do nothing
-      } else {
-         // System error or Timeout
-         setError(`Error in Ch ${index + 1}: ${err.message}`);
-         setLoading(false);
+        const text = await callAiChapter(
+          blueprint,
+          index,
+          prevText,
+          { ...config, generationConfig: resolveGenerationConfig() },
+          180000,
+          guidance
+        );
+        if (!text) break;
+        setStoryContent(prev => ({ ...prev, [index]: text }));
+      } catch (e) {
+        if (e.name === 'AbortError') break;
+        setError(`Generation stopped at Ch ${index + 1}: ${e.message}`);
+        break;
       }
     }
+
+    setLoading(false);
+    setLoadingMessage("");
   };
 
   // --- Phase 3: The Publisher (PDF) ---
@@ -690,9 +759,6 @@ Describe the illustration.`;
         {loading ? (
             <LoadingView 
                 loadingMessage={loadingMessage} 
-                view={view} 
-                blueprint={blueprint} 
-                currentChapterGenIndex={currentChapterGenIndex} 
                 onAbort={handleStopGeneration}
             />
         ) : (
@@ -900,6 +966,7 @@ Describe the illustration.`;
                         chatInput={blueprintChatInput}
                         setChatInput={setBlueprintChatInput}
                         isChatWorking={isBlueprintChatWorking}
+                        storyDoctor={storyDoctor}
                         onSendChat={async () => {
                           const msg = blueprintChatInput.trim();
                           if (!msg) return;
@@ -922,12 +989,20 @@ Return only the updated JSON. No commentary, no markdown fences.`;
 
                             const editorUserPrompt = `Current Story Bible JSON:\n${JSON.stringify(blueprint)}\n\nRequested edits (conversation):\n${nextMessages.map(m => `${m.role.toUpperCase()}: ${m.content}`).join("\n")}\n\nReturn the updated Story Bible JSON now.`;
 
-                            const text = await callGeminiText(editorSystemPrompt, editorUserPrompt, true, 180000, {
-                              temperature: 0.5,
-                              topP: 0.9,
-                              topK: 40,
-                              maxOutputTokens: 8192
-                            });
+                            const text = await callGeminiText(
+                              editorSystemPrompt,
+                              editorUserPrompt,
+                              true,
+                              180000,
+                              {
+                                temperature: 0.5,
+                                topP: 0.9,
+                                topK: 40,
+                                maxOutputTokens: 8192
+                              },
+                              config.textModel,
+                              config.textFallbackModel
+                            );
                             if (!text) return;
                             const data = extractJSON(text);
                             if (!data.chapters || data.chapters.length !== config.chapterCount) {
@@ -944,7 +1019,7 @@ Return only the updated JSON. No commentary, no markdown fences.`;
                         }}
                     />
                 )}
-                {(view === 'drafting' || view === 'reading') && (
+                {view === 'reading' && (
                     <ReaderView 
                         config={{ ...config, onSave: saveCurrentStoryToLibrary }} 
                         setView={setView} 
@@ -953,13 +1028,20 @@ Return only the updated JSON. No commentary, no markdown fences.`;
                         blueprint={blueprint} 
                         storyImages={storyImages} 
                         storyContent={storyContent} 
+                        chapterGuidance={chapterGuidance}
+                        imageGuidance={imageGuidance}
+                        onUpdateChapterGuidance={updateChapterGuidance}
+                        onUpdateImageGuidance={updateImageGuidance}
                         onAbort={handleStopGeneration}
                         isChapterToolsWorking={isChapterToolsWorking}
-                        onRegenerateChapterText={regenerateChapterText}
+                        onGenerateChapterText={generateOrRegenerateChapterText}
                         onRewriteChapter={rewriteChapter}
                         onRegenerateIllustration={regenerateIllustration}
                         getChapterHistory={getChapterHistory}
                         onRestoreChapterVersion={restoreChapterVersion}
+                        onGenerateAllRemaining={generateAllRemaining}
+                        chapterGuidanceTemplates={CHAPTER_GUIDANCE_TEMPLATES}
+                        imageGuidanceTemplates={IMAGE_GUIDANCE_TEMPLATES}
                     />
                 )}
             </>

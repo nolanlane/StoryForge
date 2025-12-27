@@ -2,7 +2,7 @@ import React from 'react';
 import { User, ArrowLeft } from 'lucide-react';
 
 export const AuthView = ({ email, setEmail, password, setPassword, onLogin, onSignup, onBack, isWorking }) => (
-  <main className="max-w-md mx-auto py-12 px-4 animate-in slide-in-from-bottom-4 min-h-screen flex items-center justify-center">
+  <main className="max-w-md mx-auto py-10 px-4 sm:py-12 animate-in slide-in-from-bottom-4 min-h-screen flex items-center justify-center">
     <form
       className="bg-white rounded-2xl shadow-xl shadow-slate-200/50 border border-slate-100 p-8 space-y-6 w-full"
       onSubmit={(e) => {
@@ -11,7 +11,7 @@ export const AuthView = ({ email, setEmail, password, setPassword, onLogin, onSi
       }}
       aria-labelledby="auth-heading"
     >
-      <header className="flex items-start justify-between gap-6">
+      <header className="flex items-start justify-between gap-4">
         <div>
           <h2 id="auth-heading" className="text-2xl font-serif font-bold text-slate-900 flex items-center gap-3">
             <User className="w-5 h-5 text-purple-600" aria-hidden="true" /> Login

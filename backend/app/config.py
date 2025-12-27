@@ -5,8 +5,9 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="STORYFORGE_", case_sensitive=False)
 
     gemini_api_key: str
+    # Defaults aim for price-performance with a higher-quality fallback.
     gemini_text_model: str = "gemini-2.5-flash"
-    gemini_text_fallback_model: str = "gemini-2.5-flash"
+    gemini_text_fallback_model: str = "gemini-2.5-pro"
     gemini_text_timeout_s: float = 180.0
     imagen_model: str = "gemini-2.5-flash-image"
     imagen_timeout_s: float = 45.0
