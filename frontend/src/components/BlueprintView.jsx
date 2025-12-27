@@ -18,9 +18,26 @@ export const BlueprintView = ({ blueprint, storyImages, setView, startDrafting, 
       if (typeof char !== 'string') {
         // Graceful fallback for non-string items (e.g. AI returned objects)
         if (char && typeof char === 'object') {
-           const name = char.Name || char.name || "Unknown";
-           const desc = char.Description || char.description || char.Role || char.role || JSON.stringify(char);
-           return { name: String(name), desc: String(desc) };
+           // 1. Try standard keys
+           const name = char.Name || char.name;
+           if (name) {
+               const desc = char.Description || char.description || char.Role || char.role || JSON.stringify(char);
+               return { name: String(name), desc: String(desc) };
+           }
+
+           // 2. Try nested object key pattern { "Name": { ... } }
+           const keys = Object.keys(char);
+           if (keys.length === 1) {
+               const possibleName = keys[0];
+               const val = char[possibleName];
+               if (val && typeof val === 'object') {
+                   const desc = val.Description || val.description || val.Role || val.role || 
+                                Object.entries(val).map(([k,v]) => `${k}: ${v}`).join(', ');
+                   return { name: String(possibleName), desc: String(desc) };
+               }
+           }
+           
+           return { name: "Unknown", desc: JSON.stringify(char) };
         }
         return { name: "Unknown", desc: String(char) };
       }
