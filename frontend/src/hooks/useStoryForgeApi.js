@@ -61,10 +61,22 @@ export function useStoryForgeApi() {
     setUserEmail("");
   }, []);
 
-  const storyDoctor = useCallback((blueprint) => {
+  const storyDoctor = useCallback((blueprint, options = {}) => {
+    const {
+      timeoutMs,
+      generationConfig,
+      textModel,
+      textFallbackModel
+    } = options || {};
     return apiFetch('/api/ai/analyze_blueprint', {
       method: 'POST',
-      body: JSON.stringify({ blueprint })
+      body: JSON.stringify({
+        blueprint,
+        timeoutMs,
+        generationConfig,
+        textModel,
+        textFallbackModel
+      })
     });
   }, [apiFetch]);
 

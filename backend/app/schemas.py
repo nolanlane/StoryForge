@@ -114,6 +114,10 @@ class AiChapterRequest(BaseModel):
 
 class AiStoryDoctorRequest(BaseModel):
     blueprint: dict
+    timeoutMs: int | None = Field(default=None, ge=1000, le=300000)
+    generationConfig: dict | None = None
+    textModel: str | None = None
+    textFallbackModel: str | None = None
 
     @field_validator("blueprint")
     @classmethod
@@ -159,6 +163,10 @@ class AiSequelRequest(BaseModel):
     chapterCount: int = Field(ge=1, le=50)
     bannedDescriptorTokens: list[str] = Field(default_factory=list, max_length=200)
     bannedPhrases: list[str] = Field(default_factory=list, max_length=200)
+    timeoutMs: int | None = Field(default=None, ge=1000, le=300000)
+    generationConfig: dict | None = None
+    textModel: str | None = None
+    textFallbackModel: str | None = None
 
     @field_validator("sourceBlueprint")
     @classmethod

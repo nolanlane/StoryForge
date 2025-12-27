@@ -259,20 +259,26 @@ async def ai_analyze_blueprint(
     system_prompt = prompt_service.get_story_doctor_system_prompt()
     user_prompt = prompt_service.construct_story_doctor_user_prompt(req.blueprint)
 
+    timeout_s = (req.timeoutMs / 1000.0) if getattr(req, "timeoutMs", None) else None
+
     try:
         text = await gemini_generate_text(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             json_mode=True,
-            timeout_s=None,
-            generation_config={
-                "temperature": 0.6,
-                "topP": 0.95,
-                "topK": 64,
-                "maxOutputTokens": 2048,
-            },
-            text_model=None,
-            text_fallback_model=None,
+            timeout_s=timeout_s,
+            generation_config=(
+                req.generationConfig
+                if getattr(req, "generationConfig", None) is not None
+                else {
+                    "temperature": 0.6,
+                    "topP": 0.95,
+                    "topK": 64,
+                    "maxOutputTokens": 2048,
+                }
+            ),
+            text_model=getattr(req, "textModel", None),
+            text_fallback_model=getattr(req, "textFallbackModel", None),
         )
         suggestions = json.loads(_extract_json(text))
         if not isinstance(suggestions, list) or not all(
@@ -318,18 +324,26 @@ async def ai_sequel(
         ending_excerpt=req.endingExcerpt,
     )
 
+    timeout_s = (req.timeoutMs / 1000.0) if getattr(req, "timeoutMs", None) else None
+
     try:
         text = await gemini_generate_text(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             json_mode=True,
-            timeout_s=None,
-            generation_config={
-                "temperature": 0.8,
-                "topP": 0.95,
-                "topK": 64,
-                "maxOutputTokens": 8192,
-            },
+            timeout_s=timeout_s,
+            generation_config=(
+                req.generationConfig
+                if getattr(req, "generationConfig", None) is not None
+                else {
+                    "temperature": 0.8,
+                    "topP": 0.95,
+                    "topK": 64,
+                    "maxOutputTokens": 8192,
+                }
+            ),
+            text_model=getattr(req, "textModel", None),
+            text_fallback_model=getattr(req, "textFallbackModel", None),
         )
         blueprint = json.loads(_extract_json(text))
         return AiSequelResponse(blueprint=blueprint)
