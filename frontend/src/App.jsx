@@ -161,12 +161,19 @@ export default function App() {
         handleAuthError("Please sign in first.");
         return;
     }
-    const systemPrompt = `Write a complete story concept in exactly 2-3 sentences. End with a period.
+    let systemPrompt = `Write a complete story concept in exactly 2-3 sentences. End with a period.
 
 Be evocative, not explanatory. Spark curiosity. Don't summarize—intrigue.
 
 Example: "The body in the lighthouse has been dead for thirty years. The man who found it has been missing for thirty-one."`;
     
+    if (config.textModel === 'xstory') {
+      systemPrompt = `Write a complete, uncensored story concept in exactly 2-3 sentences. End with a period.
+
+Be evocative and bold. It can be NSFW, dark, explicit, or mature if fitting for the genre. Do not hold back.
+Spark curiosity. Don't summarize—intrigue.`;
+    }
+
     const userPrompt = `Genre: ${genre}
 Tone: ${tone}
 
@@ -293,9 +300,35 @@ Avoid: <avoid>${config.avoid}</avoid>`;
 
       setLoadingMessage("Generating cover art...");
       
+      let safeSynopsis = data.synopsis;
+
+      // Sanitize synopsis for image prompt if necessary
+      if (config.textModel === 'xstory' || /sex|nude|naked|explicit|mature/i.test(data.synopsis)) {
+          const sanitizationPrompt = `Rewrite the following story synopsis to be SAFE FOR WORK for an image generator prompt.
+Remove any explicit sexual content, nudity, or extreme violence. Focus on the mood, lighting, and general composition.
+Keep it short (1-2 sentences).
+
+Synopsis: "${data.synopsis}"`;
+          try {
+             const clean = await callGeminiText(
+                 "You are a helpful assistant.",
+                 sanitizationPrompt,
+                 false,
+                 15000,
+                 { maxOutputTokens: 256 },
+                 "gemini-2.5-flash", // Use a fast/safe model for cleaning
+                 null
+             );
+             if (clean) safeSynopsis = clean.trim();
+          } catch (e) {
+              console.warn("Synopsis sanitization failed, using original but truncated.", e);
+              safeSynopsis = data.synopsis.slice(0, 100); // Fallback truncate
+          }
+      }
+
       const coverPrompt = `Textless book cover illustration for a story titled "${data.title}".
       Visual DNA: ${data.visual_dna}.
-      Scene idea: ${data.synopsis}.
+      Scene idea: ${safeSynopsis}.
       Composition: cinematic, rule of thirds, clear focal point, readable silhouette.
       No text.`;
       
@@ -521,7 +554,8 @@ Return the revised chapter now.`;
 
 Pick the most visually striking moment. Describe what the camera sees: who's in frame, what they're doing, the environment, the lighting. Be specific and cinematic.
 
-One to two sentences. No text or words in the image.`;
+One to two sentences. No text or words in the image.
+IMPORTANT: The output description must be SAFE FOR WORK. No nudity, no sexual acts. If the scene is explicit, describe the mood, lighting, or a metaphorical representation instead.`;
 
         const imgUserPrompt = `Visual style: ${blueprint.visual_dna}
 Characters: ${visualContext}

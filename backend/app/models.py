@@ -38,3 +38,13 @@ class Story(Base):
     sequel_of_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     user: Mapped[User] = relationship("User", back_populates="stories")
+
+
+class Preset(Base):
+    __tablename__ = "presets"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    name: Mapped[str] = mapped_column(String(128))
+    config_json: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

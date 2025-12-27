@@ -14,7 +14,7 @@ from .auth import create_access_token, get_current_user, hash_password, verify_p
 from .config import settings
 from .db import Base, engine, get_db
 from .gemini_client import gemini_generate_image, gemini_generate_text
-from .models import User
+from .models import User, Preset
 from .schemas import (
     AiChapterRequest,
     AiImagenRequest,
@@ -32,8 +32,11 @@ from .schemas import (
     StoryUpsert,
     TokenResponse,
     UserResponse,
+    PresetCreate,
+    PresetResponse,
 )
 from .services import story_service, prompt_service
+import uuid
 
 logger = logging.getLogger(__name__)
 
@@ -188,6 +191,62 @@ async def delete_story(
 ) -> dict:
     if not await story_service.delete_story_for_user(db, story_id, current_user.id):
         raise HTTPException(status_code=404, detail="Not found")
+    return {"ok": True}
+
+
+@app.get("/api/presets", response_model=list[PresetResponse])
+async def list_presets(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[PresetResponse]:
+    result = await db.execute(select(Preset).filter(Preset.user_id == current_user.id).order_by(Preset.created_at.desc()))
+    presets = result.scalars().all()
+    return [
+        PresetResponse(
+            id=p.id,
+            name=p.name,
+            config=json.loads(p.config_json)
+        ) for p in presets
+    ]
+
+
+@app.post("/api/presets", response_model=PresetResponse)
+async def create_preset(
+    req: PresetCreate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> PresetResponse:
+    if len(req.name.strip()) == 0:
+        raise HTTPException(status_code=400, detail="Preset name cannot be empty")
+
+    pid = str(uuid.uuid4())
+    p = Preset(
+        id=pid,
+        user_id=current_user.id,
+        name=req.name.strip(),
+        config_json=json.dumps(req.config)
+    )
+    db.add(p)
+    await db.commit()
+    await db.refresh(p)
+    return PresetResponse(id=p.id, name=p.name, config=json.loads(p.config_json))
+
+
+@app.delete("/api/presets/{preset_id}")
+async def delete_preset(
+    preset_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    result = await db.execute(
+        select(Preset).filter(Preset.id == preset_id, Preset.user_id == current_user.id)
+    )
+    p = result.scalars().first()
+    if not p:
+        raise HTTPException(status_code=404, detail="Preset not found")
+
+    await db.delete(p)
+    await db.commit()
     return {"ok": True}
 
 
