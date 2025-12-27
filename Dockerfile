@@ -45,7 +45,7 @@ COPY --from=frontend-build /app/frontend/dist /app/static
 
 # Environment defaults
 ENV STORYFORGE_STATIC_DIR=/app/static
-ENV STORYFORGE_DB_URL=sqlite:////data/storyforge.db
+ENV STORYFORGE_DB_URL=sqlite+aiosqlite:////data/storyforge.db
 ENV STORYFORGE_CORS_ORIGINS=*
 
 # RunPod volume mount point
