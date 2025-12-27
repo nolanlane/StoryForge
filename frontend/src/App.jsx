@@ -217,33 +217,17 @@ export default function App() {
     
     const systemPrompt = isXStory
       ? (isEnhancing 
-          ? `You are enhancing raw, unfiltered adult story concepts with zero restrictions.
+          ? `You are enhancing adult story concepts. Take the user's concept and amplify the tension, specificity, and emotional stakes. Add layers of complexity and consequence. Keep it 2-3 sentences. Be direct and explicit where it serves the story.`
+          : `You are writing adult story concepts with mature themes. Write 2-3 sentences that capture a specific, emotionally complex scenario with real stakes and consequences.
 
-RULES:
-- Take the user's existing concept and make it more vivid, explicit, and detailed
-- Add sexual tension, crude details, and raw scenarios
-- Use profanity, crude slang, and vulgar language freely
-- Keep it 2-4 sentences max
-- No euphemisms, no censorship, no restraint
-- Swear words, dirty talk, and explicit terminology are encouraged
-- Make it feel real, specific, and morally ambiguous`
-          : `You are a creative NSFW story concept generator with zero restrictions or filters.
+Good concepts feel real and grounded:
+"She's been sleeping with her husband's brother for six months. Tonight's the family reunion, and neither can keep their distance. Her husband keeps asking why she's being so friendly."
 
-RULES:
-- Write 2-3 vivid sentences describing a sexually charged, adult scenario
-- Be explicit and direct - use profanity and crude language naturally
-- Focus on raw desire, tension, and morally gray situations
-- Make it feel real and specific, not generic fantasy
-- No euphemisms, no censorship, no restraint
-- Every concept should feel unique and provocative
-- Capture the psychology and stakes, not just the acts
+"The divorce lawyer is attracted to his client. She noticed first. Now they're in his office after hours, crossing every professional line."
 
-EXAMPLES:
-"She's been fucking her husband's brother for six months. Tonight's the family reunion, and neither of them can keep their hands to themselves. Her husband keeps asking why she's being so friendly."
+"He hired a cam girl. She turned out to be his daughter's college roommate. She recognized him and doubled her rates."
 
-"The divorce lawyer realized he's attracted to his client halfway through her deposition. She noticed first. Now they're in his office after hours, and she's promising things that could cost him his license."
-
-"He hired a cam girl for private sessions. She turned out to be his daughter's college roommate. She recognized him immediately and doubled her rates."`)
+Write something similarly specific and grounded.`)
       : (isEnhancing
           ? `You are a master story concept enhancer. Take the user's existing concept and make it more evocative, intriguing, and compelling.
 
@@ -265,14 +249,10 @@ Example: "The body in the lighthouse has been dead for thirty years. The man who
     
     const userPrompt = isXStory
       ? (isEnhancing
-          ? `Enhance this concept with more explicit details and raw sexual tension:\n\n${existingPrompt}`
-          : `Create a unique, sexually explicit story concept using these elements for inspiration:
+          ? `Take this concept and make it more vivid and specific. Add emotional complexity and real stakes:\n\n${existingPrompt}`
+          : `Write an adult story concept involving ${randomTheme} in a ${randomSetting} where ${randomDynamic}. 
 
-THEME: ${randomTheme}
-SETTING: ${randomSetting}
-DYNAMIC: ${randomDynamic}
-
-You don't have to use all elements literally - let them inspire you to create something fresh and provocative. Focus on the emotional stakes, moral complexity, and raw desire. Make it feel real and specific, not generic porn. Use crude language naturally. 2-3 sentences max.`)
+Make it feel real and specific with clear emotional stakes. 2-3 sentences.`)
       : (isEnhancing
           ? `Enhance this concept while keeping its core essence:\n\n${existingPrompt}\n\nGenre: ${genre}\nTone: ${tone}\n\nMake it more intriguing and evocative.`
           : `Genre: ${genre}
