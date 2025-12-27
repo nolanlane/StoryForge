@@ -25,6 +25,10 @@ from .schemas import (
     AiStoryDoctorResponse,
     AiTextRequest,
     AiTextResponse,
+    ConfigPresetCreate,
+    ConfigPresetDetail,
+    ConfigPresetSummary,
+    ConfigPresetUpdate,
     LoginRequest,
     SignupRequest,
     StoryDetail,
@@ -33,7 +37,7 @@ from .schemas import (
     TokenResponse,
     UserResponse,
 )
-from .services import story_service, prompt_service
+from .services import story_service, prompt_service, config_preset_service
 
 logger = logging.getLogger(__name__)
 
@@ -191,6 +195,65 @@ async def delete_story(
     return {"ok": True}
 
 
+@app.get("/api/config-presets", response_model=list[ConfigPresetSummary])
+async def list_config_presets(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[ConfigPresetSummary]:
+    return await config_preset_service.list_presets_for_user(db, current_user.id)
+
+
+@app.get("/api/config-presets/{preset_id}", response_model=ConfigPresetDetail)
+async def get_config_preset(
+    preset_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> ConfigPresetDetail:
+    preset = await config_preset_service.get_preset_for_user(db, preset_id, current_user.id)
+    if not preset:
+        raise HTTPException(status_code=404, detail="Not found")
+    return ConfigPresetDetail(
+        id=preset.id,
+        name=preset.name,
+        config=json.loads(preset.config_json or "{}"),
+        createdAt=preset.created_at,
+        updatedAt=preset.updated_at,
+    )
+
+
+@app.post("/api/config-presets", response_model=ConfigPresetSummary)
+async def create_config_preset(
+    req: ConfigPresetCreate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> ConfigPresetSummary:
+    return await config_preset_service.create_preset_for_user(db, req, current_user.id)
+
+
+@app.put("/api/config-presets/{preset_id}", response_model=ConfigPresetSummary)
+async def update_config_preset(
+    preset_id: int,
+    req: ConfigPresetUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> ConfigPresetSummary:
+    preset = await config_preset_service.update_preset_for_user(db, preset_id, req, current_user.id)
+    if not preset:
+        raise HTTPException(status_code=404, detail="Not found")
+    return preset
+
+
+@app.delete("/api/config-presets/{preset_id}")
+async def delete_config_preset(
+    preset_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    if not await config_preset_service.delete_preset_for_user(db, preset_id, current_user.id):
+        raise HTTPException(status_code=404, detail="Not found")
+    return {"ok": True}
+
+
 @app.post("/api/ai/text", response_model=AiTextResponse)
 async def ai_text(
     req: AiTextRequest, current_user: User = Depends(get_current_user)
@@ -222,9 +285,12 @@ async def ai_chapter(
     except IndexError:
         raise HTTPException(422, "Invalid chapter index")
 
+    use_genre_tone = not req.config.get("disableGenreTone", False)
     system_prompt = prompt_service.get_chapter_system_prompt(
         writing_style=req.config.get("writingStyle", ""),
         tone=req.config.get("tone", ""),
+        text_model=req.textModel,
+        use_genre_tone=use_genre_tone,
     )
     user_prompt = prompt_service.construct_chapter_user_prompt(
         blueprint=req.blueprint,
@@ -318,6 +384,7 @@ async def ai_sequel(
         chapter_count=req.chapterCount,
         banned_phrases=req.bannedPhrases,
         banned_descriptor_tokens=req.bannedDescriptorTokens,
+        text_model=getattr(req, "textModel", None),
     )
     user_prompt = prompt_service.construct_sequel_user_prompt(
         source_blueprint=req.sourceBlueprint,

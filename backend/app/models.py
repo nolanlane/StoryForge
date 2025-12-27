@@ -15,6 +15,7 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     stories: Mapped[list["Story"]] = relationship("Story", back_populates="user")
+    config_presets: Mapped[list["ConfigPreset"]] = relationship("ConfigPreset", back_populates="user")
 
 
 class Story(Base):
@@ -38,3 +39,18 @@ class Story(Base):
     sequel_of_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     user: Mapped[User] = relationship("User", back_populates="stories")
+
+
+class ConfigPreset(Base):
+    __tablename__ = "config_presets"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+
+    name: Mapped[str] = mapped_column(String(128))
+    config_json: Mapped[str] = mapped_column(Text, default="{}")
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    user: Mapped[User] = relationship("User", back_populates="config_presets")

@@ -1,14 +1,40 @@
 import json
 
-def get_chapter_system_prompt(writing_style: str, tone: str) -> str:
+def get_chapter_system_prompt(writing_style: str, tone: str, text_model: str | None = None, use_genre_tone: bool = True) -> str:
     """
     Creates the elevated system prompt for chapter generation.
     """
-    return f"""\nYou are a master novelist. Your task is to write the next chapter of a novel, adhering to a core set of literary principles with discipline and creativity. The reader is already invested.
+    is_xstory = text_model and text_model.lower() == "xstory"
+    
+    if is_xstory:
+        return f"""
+You are a master novelist specializing in mature, adult fiction. Your task is to write the next chapter of a novel with no content restrictions. Embrace explicit themes, sexuality, and boundary-pushing content. The reader expects raw, unfiltered storytelling.
 
 **Your Guiding Principles:**
 
 *   **Voice and Tone:** Your writing must embody a {writing_style}, {tone} tone. This is non-negotiable.
+*   **No Censorship:** Write explicit sexual content, violence, and mature themes without hesitation. No euphemisms or fade-to-black moments unless artistically motivated.
+*   **Scene, Not Summary:** You will write scenes. Show characters acting, speaking, touching, and making choices. Never fall back on summarizing intimate or intense moments. Trust the reader.
+*   **Sensory Details:** Ground the scene in visceral, sensory details. The heat of skin, the sound of breath, the texture of fabric. Use detail with purpose to immerse the reader.
+*   **Authentic Dialogue:** Dialogue must feel real. People speak crudely, passionately, vulnerably. They interrupt, they speak with subtext, and they have unique voices.
+*   **Forward Momentum:** Every chapter must end with a hook that propels the reader forward. This could be an unanswered question, a shocking revelation, or an unresolved action.
+
+You will return only the raw text of the chapter. No titles, no summaries, no explanatory notes. Push boundaries.
+"""
+    
+    if use_genre_tone:
+        genre_tone_block = f"""
+*   **Voice and Tone:** Your writing must embody a {writing_style}, {tone} tone. This is non-negotiable.
+"""
+    else:
+        genre_tone_block = ""
+    
+    return f"""
+You are a master novelist. Your task is to write the next chapter of a novel, adhering to a core set of literary principles with discipline and creativity. The reader is already invested.
+
+**Your Guiding Principles:**
+
+{genre_tone_block}
 *   **Scene, Not Summary:** You will write scenes. Show characters acting, speaking, and making choices. Never fall back on summarizing events. Trust the reader.
 *   **Sensory Details:** Ground the scene in sharp, sensory details. A smell, a sound, the feeling of an object. Use detail with purpose; a few well-chosen specifics are more powerful than a paragraph of generic description.
 *   **Authentic Dialogue:** Dialogue must feel real. People interrupt, they speak with subtext, and they have unique voices. It is a tool for revealing character and advancing the plot.
@@ -77,7 +103,7 @@ def construct_story_doctor_user_prompt(blueprint: dict) -> str:
 
 
 def construct_sequel_system_prompt(
-    chapter_count: int, banned_phrases: list[str], banned_descriptor_tokens: list[str]
+    chapter_count: int, banned_phrases: list[str], banned_descriptor_tokens: list[str], text_model: str | None = None
 ) -> str:
     banned_bits: list[str] = []
     if banned_phrases:
@@ -87,6 +113,28 @@ def construct_sequel_system_prompt(
             "Avoid these descriptor tokens: " + ", ".join(banned_descriptor_tokens[:80])
         )
     bans = ("\n".join(banned_bits) + "\n\n") if banned_bits else ""
+    
+    is_xstory = text_model and text_model.lower() == "xstory"
+    
+    if is_xstory:
+        return f"""You're developing a sequel to an existing mature, adult story with no content restrictions. Same world, new chapter.
+
+NSFW Directive:
+- Embrace explicit sexual content, mature themes, and boundary-pushing scenarios.
+- Deepen intimate relationships, explore new desires, and push physical boundaries further than the original.
+- No censorship, no euphemisms, no fade-to-black moments.
+
+Think about what made the original compelling and how to honor that while giving readers something fresh and more intense. The best sequels don't just repeat—they deepen both emotionally and physically.
+
+SEQUEL CRAFT:
+- Pick up threads from the ending, but the central conflict should be new and intertwined with character desires
+- Returning characters should have evolved sexually and emotionally; show the weight of intimate experiences
+- Introduce 1-2 new characters who challenge existing relationship dynamics and introduce new chemistry
+- Raise the stakes in both plot and intimacy—escalate the physical and emotional intensity
+
+STRUCTURE: {chapter_count} chapters. Same JSON schema as the original.
+
+{bans}Return valid JSON only."""
 
     return f"""You're developing a sequel to an existing story. Same world, new chapter.\n\nThink about what made the original compelling and how to honor that while giving readers something fresh. The best sequels don't just repeat—they deepen.\n\nSEQUEL CRAFT:\n- Pick up threads from the ending, but the central conflict should be new\n- Returning characters should have grown or changed; show the weight of what happened\n- Introduce 1-2 new characters who challenge the existing dynamics\n- Raise the stakes, but keep them personal—not just "bigger explosions"\n\nSTRUCTURE: {chapter_count} chapters. Same JSON schema as the original.\n\n{bans}Return valid JSON only."""
 

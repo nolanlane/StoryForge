@@ -147,6 +147,27 @@ class AiStoryDoctorResponse(BaseModel):
     suggestions: list[str]
 
 
+class ConfigPresetCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=128)
+    config: dict = Field(default_factory=dict)
+
+
+class ConfigPresetUpdate(BaseModel):
+    name: str | None = Field(None, min_length=1, max_length=128)
+    config: dict | None = None
+
+
+class ConfigPresetSummary(BaseModel):
+    id: int
+    name: str
+    createdAt: datetime
+    updatedAt: datetime
+
+
+class ConfigPresetDetail(ConfigPresetSummary):
+    config: dict
+
+
 class AiImagenRequest(BaseModel):
     prompt: str = Field(max_length=8000)
     timeoutMs: int | None = Field(default=None, ge=1000, le=60000)

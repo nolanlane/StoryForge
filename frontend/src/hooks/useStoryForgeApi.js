@@ -80,6 +80,34 @@ export function useStoryForgeApi() {
     });
   }, [apiFetch]);
 
+  const listConfigPresets = useCallback(() => {
+    return apiFetch('/api/config-presets');
+  }, [apiFetch]);
+
+  const getConfigPreset = useCallback((presetId) => {
+    return apiFetch(`/api/config-presets/${presetId}`);
+  }, [apiFetch]);
+
+  const createConfigPreset = useCallback((name, config) => {
+    return apiFetch('/api/config-presets', {
+      method: 'POST',
+      body: JSON.stringify({ name, config })
+    });
+  }, [apiFetch]);
+
+  const updateConfigPreset = useCallback((presetId, name, config) => {
+    return apiFetch(`/api/config-presets/${presetId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ name, config })
+    });
+  }, [apiFetch]);
+
+  const deleteConfigPreset = useCallback((presetId) => {
+    return apiFetch(`/api/config-presets/${presetId}`, {
+      method: 'DELETE'
+    });
+  }, [apiFetch]);
+
   return {
     authToken,
     setAuthToken,
@@ -88,6 +116,11 @@ export function useStoryForgeApi() {
     apiFetch,
     requireAuth,
     logout,
-    storyDoctor
+    storyDoctor,
+    listConfigPresets,
+    getConfigPreset,
+    createConfigPreset,
+    updateConfigPreset,
+    deleteConfigPreset
   };
 }

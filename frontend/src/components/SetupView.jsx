@@ -1,10 +1,15 @@
-import React, { useState, useMemo } from 'react';
-import { BookOpen, User, Sparkles, Dices, Loader2, Ban, Feather, Cpu, Image as ImageIcon, Shield, Compass, Palette, ChevronDown, ChevronUp, Wand2 } from 'lucide-react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { BookOpen, User, Sparkles, Dices, Loader2, Ban, Feather, Cpu, Image as ImageIcon, Shield, Compass, Palette, ChevronDown, ChevronUp, Wand2, Save, FolderOpen, Trash2 } from 'lucide-react';
 import { TEXT_MODELS, IMAGE_MODELS, GENERATION_MODES, IMAGE_STYLE_PRESETS } from '../lib/constants';
 
-export const SetupView = ({ config, setConfig, generateBlueprint, onRollDice, userEmail, onOpenAuth, onOpenLibrary, onLogout }) => {
+export const SetupView = ({ config, setConfig, generateBlueprint, onRollDice, userEmail, onOpenAuth, onOpenLibrary, onLogout, listConfigPresets, getConfigPreset, createConfigPreset, updateConfigPreset, deleteConfigPreset }) => {
   const [isRolling, setIsRolling] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [presets, setPresets] = useState([]);
+  const [showPresetDialog, setShowPresetDialog] = useState(false);
+  const [presetName, setPresetName] = useState('');
+  const [isPresetWorking, setIsPresetWorking] = useState(false);
+  const [presetError, setPresetError] = useState(null);
 
   const selectedTextModel = useMemo(
     () => TEXT_MODELS.find((m) => m.value === config.textModel) || TEXT_MODELS[0],
@@ -26,6 +31,82 @@ export const SetupView = ({ config, setConfig, generateBlueprint, onRollDice, us
     () => IMAGE_STYLE_PRESETS.find((m) => m.value === config.imageStylePreset) || IMAGE_STYLE_PRESETS[0],
     [config.imageStylePreset]
   );
+
+  useEffect(() => {
+    if (userEmail && listConfigPresets) {
+      loadPresets();
+    }
+  }, [userEmail]);
+
+  const loadPresets = async () => {
+    if (!listConfigPresets) return;
+    try {
+      const data = await listConfigPresets();
+      setPresets(data || []);
+    } catch (e) {
+      console.error('Failed to load presets:', e);
+    }
+  };
+
+  const handleSavePreset = async () => {
+    if (!userEmail) {
+      onOpenAuth();
+      return;
+    }
+    if (!presetName.trim()) {
+      setPresetError('Preset name is required');
+      return;
+    }
+    setIsPresetWorking(true);
+    setPresetError(null);
+    try {
+      const savedConfig = { ...config };
+      delete savedConfig.title;
+      delete savedConfig.prompt;
+      await createConfigPreset(presetName.trim(), savedConfig);
+      setPresetName('');
+      setShowPresetDialog(false);
+      await loadPresets();
+    } catch (e) {
+      setPresetError(e.message || 'Failed to save preset');
+    } finally {
+      setIsPresetWorking(false);
+    }
+  };
+
+  const handleLoadPreset = async (presetId) => {
+    if (!userEmail) {
+      onOpenAuth();
+      return;
+    }
+    setIsPresetWorking(true);
+    try {
+      const preset = await getConfigPreset(presetId);
+      setConfig(prev => ({
+        ...prev,
+        ...preset.config,
+        title: prev.title,
+        prompt: prev.prompt
+      }));
+    } catch (e) {
+      console.error('Failed to load preset:', e);
+    } finally {
+      setIsPresetWorking(false);
+    }
+  };
+
+  const handleDeletePreset = async (presetId) => {
+    if (!confirm('Delete this preset?')) return;
+    setIsPresetWorking(true);
+    try {
+      await deleteConfigPreset(presetId);
+      await loadPresets();
+    } catch (e) {
+      console.error('Failed to delete preset:', e);
+    } finally {
+      setIsPresetWorking(false);
+    }
+  };
 
   const handleRollDice = async () => {
     if (!userEmail) {
@@ -59,9 +140,17 @@ export const SetupView = ({ config, setConfig, generateBlueprint, onRollDice, us
             <User className="w-3 h-3" />
             {userEmail ? `Signed in: ${userEmail}` : 'Not signed in'}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             {userEmail ? (
               <>
+                <button
+                  onClick={() => setShowPresetDialog(true)}
+                  disabled={isPresetWorking}
+                  className="text-xs font-bold text-green-600 hover:text-green-700 hover:bg-green-50 px-3 py-1.5 rounded transition-colors focus:ring-2 focus:ring-green-500 outline-none disabled:opacity-50 flex items-center gap-1"
+                  title="Save current setup as preset"
+                >
+                  <Save className="w-3 h-3" /> Save Preset
+                </button>
                 <button
                   onClick={onOpenLibrary}
                   className="text-xs font-bold text-purple-600 hover:text-purple-700 hover:bg-purple-50 px-3 py-1.5 rounded transition-colors focus:ring-2 focus:ring-purple-500 outline-none"
@@ -86,6 +175,36 @@ export const SetupView = ({ config, setConfig, generateBlueprint, onRollDice, us
           </div>
         </div>
 
+        {/* Config Presets Section */}
+        {userEmail && presets.length > 0 && (
+          <div className="space-y-2 border-t border-slate-200 pt-4">
+            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block flex items-center gap-2">
+              <FolderOpen className="w-3 h-3" /> Load Preset
+            </label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {presets.map((preset) => (
+                <div key={preset.id} className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg p-3">
+                  <button
+                    onClick={() => handleLoadPreset(preset.id)}
+                    disabled={isPresetWorking}
+                    className="flex-1 text-left text-sm font-medium text-slate-700 hover:text-purple-600 transition-colors disabled:opacity-50"
+                  >
+                    {preset.name}
+                  </button>
+                  <button
+                    onClick={() => handleDeletePreset(preset.id)}
+                    disabled={isPresetWorking}
+                    className="p-1.5 text-red-500 hover:bg-red-50 rounded transition-colors disabled:opacity-50"
+                    title="Delete preset"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Title (Optional) */}
         <div className="space-y-2">
           <label htmlFor="setup-title" className="text-xs font-bold text-slate-500 uppercase tracking-wider block">Story Title (Optional)</label>
@@ -99,74 +218,107 @@ export const SetupView = ({ config, setConfig, generateBlueprint, onRollDice, us
         </div>
 
         {/* Genre & Tone */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-          <div className="space-y-2">
-            <label htmlFor="setup-genre" className="text-xs font-bold text-slate-500 uppercase tracking-wider block">Genre</label>
-            <div className="relative">
-              <select
-                id="setup-genre"
-                value={config.genre}
-                onChange={(e) => setConfig({...config, genre: e.target.value})}
-                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-purple-500 outline-none transition-all font-medium appearance-none"
-              >
-                <optgroup label="Classic">
-                  <option>Science Fiction</option>
-                  <option>High Fantasy</option>
-                  <option>Mystery / Detective</option>
-                  <option>Thriller / Suspense</option>
-                  <option>Horror</option>
-                  <option>Historical Fiction</option>
-                  <option>Romance</option>
-                  <option>Literary Fiction</option>
-                  <option>Adventure</option>
-                  <option>Western</option>
-                </optgroup>
-                <optgroup label="Speculative & Niche">
-                  <option>Cyberpunk</option>
-                  <option>Steampunk</option>
-                  <option>Solarpunk</option>
-                  <option>Space Opera</option>
-                  <option>Urban Fantasy</option>
-                  <option>Magical Realism</option>
-                  <option>Dystopian / Post-Apocalyptic</option>
-                  <option>Gothic Horror</option>
-                  <option>Eldritch / Cosmic Horror</option>
-                  <option>Weird West</option>
-                  <option>Alt-History</option>
-                  <option>Satire</option>
-                </optgroup>
-              </select>
-              {/* Custom arrow could go here if appearance-none is used completely */}
+        <div className="space-y-4">
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              id="disable-genre-tone"
+              checked={config.disableGenreTone || false}
+              onChange={(e) => setConfig({...config, disableGenreTone: e.target.checked})}
+              className="w-4 h-4 text-purple-600 rounded focus:ring-2 focus:ring-purple-500"
+            />
+            <label htmlFor="disable-genre-tone" className="text-sm font-medium text-slate-700">
+              Disable genre/tone guidance (let AI decide)
+            </label>
+          </div>
+          
+          {!config.disableGenreTone && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+              <div className="space-y-2">
+                <label htmlFor="setup-genre" className="text-xs font-bold text-slate-500 uppercase tracking-wider block">Genre</label>
+                <div className="relative">
+                  <select
+                    id="setup-genre"
+                    value={config.genre}
+                    onChange={(e) => setConfig({...config, genre: e.target.value})}
+                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-purple-500 outline-none transition-all font-medium appearance-none"
+                  >
+                    <optgroup label="Classic">
+                      <option>Science Fiction</option>
+                      <option>High Fantasy</option>
+                      <option>Mystery / Detective</option>
+                      <option>Thriller / Suspense</option>
+                      <option>Horror</option>
+                      <option>Historical Fiction</option>
+                      <option>Romance</option>
+                      <option>Erotica</option>
+                      <option>Literary Fiction</option>
+                      <option>Adventure</option>
+                      <option>Western</option>
+                    </optgroup>
+                    <optgroup label="Speculative & Niche">
+                      <option>Cyberpunk</option>
+                      <option>Steampunk</option>
+                      <option>Solarpunk</option>
+                      <option>Space Opera</option>
+                      <option>Urban Fantasy</option>
+                      <option>Magical Realism</option>
+                      <option>Dystopian / Post-Apocalyptic</option>
+                      <option>Gothic Horror</option>
+                      <option>Eldritch / Cosmic Horror</option>
+                      <option>Weird West</option>
+                      <option>Alt-History</option>
+                      <option>Satire</option>
+                    </optgroup>
+                    <optgroup label="Adult">
+                      <option>Dark Romance</option>
+                      <option>Erotic Fantasy</option>
+                      <option>Erotic Thriller</option>
+                      <option>Paranormal Romance (Explicit)</option>
+                      <option>Contemporary Erotica</option>
+                    </optgroup>
+                  </select>
+                  {/* Custom arrow could go here if appearance-none is used completely */}
+                </div>
+              </div>
+              <div className="space-y-2">
+                <label htmlFor="setup-tone" className="text-xs font-bold text-slate-500 uppercase tracking-wider block">Tone</label>
+                <select
+                  id="setup-tone"
+                  value={config.tone}
+                  onChange={(e) => setConfig({...config, tone: e.target.value})}
+                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-purple-500 outline-none transition-all font-medium"
+                >
+                  <optgroup label="Atmosphere">
+                    <option>Gritty & Realistic</option>
+                    <option>Dark & Oppressive</option>
+                    <option>Lighthearted & Whimsical</option>
+                    <option>Cozy & Heartwarming</option>
+                    <option>Gothic & Atmospheric</option>
+                    <option>Surreal & Dreamlike</option>
+                    <option>Raw & Visceral</option>
+                    <option>Intimate & Character-Driven</option>
+                  </optgroup>
+                  <optgroup label="Pacing & Emotion">
+                    <option>Fast-Paced & Action-Heavy</option>
+                    <option>Suspenseful & Tense</option>
+                    <option>Emotional & Melancholic</option>
+                    <option>Romantic & Sweeping</option>
+                    <option>Philosophical & Introspective</option>
+                    <option>Satirical & Witty</option>
+                    <option>Hopeful & Optimistic</option>
+                    <option>Psychedelic & Bizarre</option>
+                  </optgroup>
+                  <optgroup label="Adult">
+                    <option>Sensual & Erotic</option>
+                    <option>Provocative & Taboo-Breaking</option>
+                    <option>Passionate & Intense</option>
+                    <option>Steamy & Explicit</option>
+                  </optgroup>
+                </select>
+              </div>
             </div>
-          </div>
-          <div className="space-y-2">
-            <label htmlFor="setup-tone" className="text-xs font-bold text-slate-500 uppercase tracking-wider block">Tone</label>
-            <select
-              id="setup-tone"
-              value={config.tone}
-              onChange={(e) => setConfig({...config, tone: e.target.value})}
-              className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-purple-500 outline-none transition-all font-medium"
-            >
-              <optgroup label="Atmosphere">
-                <option>Gritty & Realistic</option>
-                <option>Dark & Oppressive</option>
-                <option>Lighthearted & Whimsical</option>
-                <option>Cozy & Heartwarming</option>
-                <option>Gothic & Atmospheric</option>
-                <option>Surreal & Dreamlike</option>
-              </optgroup>
-              <optgroup label="Pacing & Emotion">
-                <option>Fast-Paced & Action-Heavy</option>
-                <option>Suspenseful & Tense</option>
-                <option>Emotional & Melancholic</option>
-                <option>Romantic & Sweeping</option>
-                <option>Philosophical & Introspective</option>
-                <option>Satirical & Witty</option>
-                <option>Hopeful & Optimistic</option>
-                <option>Psychedelic & Bizarre</option>
-              </optgroup>
-            </select>
-          </div>
+          )}
         </div>
 
         {/* Inputs */}
@@ -396,6 +548,69 @@ export const SetupView = ({ config, setConfig, generateBlueprint, onRollDice, us
         </button>
 
       </section>
+
+      {/* Save Preset Dialog */}
+      {showPresetDialog && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 space-y-4">
+            <h3 className="text-xl font-serif font-bold text-slate-900">Save Configuration Preset</h3>
+            <p className="text-sm text-slate-600">Save your current setup configuration (models, settings, genre, tone, etc.) as a reusable preset.</p>
+            
+            <div className="space-y-2">
+              <label htmlFor="preset-name" className="text-xs font-bold text-slate-500 uppercase tracking-wider block">
+                Preset Name
+              </label>
+              <input
+                id="preset-name"
+                type="text"
+                value={presetName}
+                onChange={(e) => setPresetName(e.target.value)}
+                placeholder="e.g., My Sci-Fi Setup"
+                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-purple-500 outline-none transition-all"
+                onKeyPress={(e) => e.key === 'Enter' && handleSavePreset()}
+                autoFocus
+              />
+            </div>
+
+            {presetError && (
+              <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg p-3">
+                {presetError}
+              </div>
+            )}
+
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => {
+                  setShowPresetDialog(false);
+                  setPresetName('');
+                  setPresetError(null);
+                }}
+                disabled={isPresetWorking}
+                className="px-4 py-2 text-sm font-bold text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSavePreset}
+                disabled={isPresetWorking || !presetName.trim()}
+                className="px-4 py-2 text-sm font-bold text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2"
+              >
+                {isPresetWorking ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-4 h-4" />
+                    Save
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 };
