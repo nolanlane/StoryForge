@@ -423,12 +423,10 @@ async def gemini_generate_image(
     cleaned_prompt = clean_image_prompt(prompt)
 
     if is_gemini_model:
-        # Gemini-style payload
+        # Gemini-style payload - no responseMimeType for image generation
         payload = {
             "contents": [{"parts": [{"text": cleaned_prompt}]}],
-            "generationConfig": {
-                "responseMimeType": "image/jpeg"
-            }
+            "generationConfig": {}
         }
     else:
         # Legacy Imagen-style payload

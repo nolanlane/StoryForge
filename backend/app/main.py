@@ -105,6 +105,7 @@ async def signup(req: SignupRequest, db: AsyncSession = Depends(get_db)) -> Toke
     user = User(email=req.email.lower(), password_hash=pw_hash)
     db.add(user)
     await db.commit()
+    await db.refresh(user)
 
     token = create_access_token(user.email)
     return TokenResponse(access_token=token)
@@ -117,15 +118,19 @@ async def login(req: LoginRequest, db: AsyncSession = Depends(get_db)) -> TokenR
 
     _validate_password(req.password)
 
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
     try:
-        ok = bool(user) and verify_password(req.password, user.password_hash)
+        ok = verify_password(req.password, user.password_hash)
     except Exception:
         ok = False
 
     if not ok:
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
-    token = create_access_token(user.email)
+    user_email = user.email
+    token = create_access_token(user_email)
     return TokenResponse(access_token=token)
 
 
@@ -259,12 +264,15 @@ async def ai_analyze_blueprint(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             json_mode=True,
+            timeout_s=None,
             generation_config={
                 "temperature": 0.6,
                 "topP": 0.95,
                 "topK": 64,
                 "maxOutputTokens": 2048,
             },
+            text_model=None,
+            text_fallback_model=None,
         )
         suggestions = json.loads(_extract_json(text))
         if not isinstance(suggestions, list) or not all(
