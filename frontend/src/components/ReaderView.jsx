@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
+import ReactMarkdown from 'react-markdown';
 import { BookOpen, Save, Download, Loader2, RefreshCcw, Wand2, Image as ImageIcon, Menu, X, ChevronRight, Zap, Eye } from 'lucide-react';
 
 const renderMarkdown = (text) => {

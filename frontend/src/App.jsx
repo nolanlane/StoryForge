@@ -23,6 +23,7 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState("");
   const [error, setError] = useState(null);
+  const [saveStatus, setSaveStatus] = useState("idle");
   const [isExporting, setIsExporting] = useState(false);
 
   const [isChapterToolsWorking, setIsChapterToolsWorking] = useState(false);
