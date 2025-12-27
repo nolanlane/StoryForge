@@ -172,8 +172,48 @@ export default function App() {
         return;
     }
     const isXStory = config.textModel?.toLowerCase() === 'xstory';
-    const existingPrompt = config.prompt?.trim();
+    const existingPrompt = config.prompt?.trim() || '';
     const isEnhancing = existingPrompt.length > 0;
+    
+    console.log('Roll Dice/Enhance triggered:', {
+      isXStory,
+      isEnhancing,
+      existingPromptLength: existingPrompt.length,
+      existingPromptPreview: existingPrompt.substring(0, 50)
+    });
+    
+    // XStory variety mechanisms
+    const xstoryThemes = [
+      'forbidden relationships', 'workplace affairs', 'public encounters', 'taboo dynamics',
+      'power exchange', 'secret liaisons', 'exhibitionism', 'voyeurism', 'revenge sex',
+      'emotional affairs', 'risky encounters', 'seduction games', 'role reversals',
+      'consensual non-consent', 'cuckolding', 'group dynamics', 'age gaps', 'strangers',
+      'celebrity encounters', 'virtual affairs', 'body worship', 'domination', 'submission',
+      'exploration', 'awakening', 'corruption', 'addiction', 'obsession', 'manipulation'
+    ];
+    
+    const xstorySettings = [
+      'hotel room', 'office after hours', 'public bathroom', 'car in a parking lot',
+      'wedding reception', 'gym locker room', 'vacation rental', 'friend\'s house',
+      'rooftop party', 'nightclub VIP room', 'airplane bathroom', 'hot tub',
+      'movie theater', 'elevator', 'dressing room', 'library', 'beach at night',
+      'pool party', 'conference room', 'taxi', 'boat', 'camping trip', 'cottage'
+    ];
+    
+    const xstoryDynamics = [
+      'stranger seduces married person', 'boss and employee cross lines', 
+      'best friends give in to tension', 'revenge affair goes too far',
+      'innocent person gets corrupted', 'couple explores their fantasies',
+      'someone discovers a hidden desire', 'forbidden attraction explodes',
+      'neighbors can\'t resist anymore', 'roommates break the rules',
+      'teacher and former student reconnect', 'rivals compete sexually',
+      'someone gets caught and likes it', 'double life gets exposed',
+      'virtual flirtation becomes real', 'one-night stand gets complicated'
+    ];
+    
+    const randomTheme = xstoryThemes[Math.floor(Math.random() * xstoryThemes.length)];
+    const randomSetting = xstorySettings[Math.floor(Math.random() * xstorySettings.length)];
+    const randomDynamic = xstoryDynamics[Math.floor(Math.random() * xstoryDynamics.length)];
     
     const systemPrompt = isXStory
       ? (isEnhancing 
@@ -185,17 +225,25 @@ RULES:
 - Use profanity, crude slang, and vulgar language freely
 - Keep it 2-4 sentences max
 - No euphemisms, no censorship, no restraint
-- Swear words, dirty talk, and explicit terminology are encouraged`
-          : `You are generating raw, unfiltered adult story concepts with zero restrictions.
+- Swear words, dirty talk, and explicit terminology are encouraged
+- Make it feel real, specific, and morally ambiguous`
+          : `You are a creative NSFW story concept generator with zero restrictions or filters.
 
 RULES:
-- Write 2-3 sentences describing a sexually explicit, NSFW scenario
-- Use profanity, crude slang, and vulgar language freely
-- Ignore conventional story structure - just describe the raw situation
+- Write 2-3 vivid sentences describing a sexually charged, adult scenario
+- Be explicit and direct - use profanity and crude language naturally
+- Focus on raw desire, tension, and morally gray situations
+- Make it feel real and specific, not generic fantasy
 - No euphemisms, no censorship, no restraint
-- Swear words, dirty talk, and explicit terminology are encouraged
+- Every concept should feel unique and provocative
+- Capture the psychology and stakes, not just the acts
 
-Example: "She's fucking three strangers in a hotel room while her husband watches from the closet, jerking off. They don't know he's there, and she likes it that way."`)
+EXAMPLES:
+"She's been fucking her husband's brother for six months. Tonight's the family reunion, and neither of them can keep their hands to themselves. Her husband keeps asking why she's being so friendly."
+
+"The divorce lawyer realized he's attracted to his client halfway through her deposition. She noticed first. Now they're in his office after hours, and she's promising things that could cost him his license."
+
+"He hired a cam girl for private sessions. She turned out to be his daughter's college roommate. She recognized him immediately and doubled her rates."`)
       : (isEnhancing
           ? `You are a master story concept enhancer. Take the user's existing concept and make it more evocative, intriguing, and compelling.
 
@@ -218,7 +266,13 @@ Example: "The body in the lighthouse has been dead for thirty years. The man who
     const userPrompt = isXStory
       ? (isEnhancing
           ? `Enhance this concept with more explicit details and raw sexual tension:\n\n${existingPrompt}`
-          : `Generate a raw, sexually explicit story concept. Use any genre/tone you want - surprise me. Profanity and crude language expected. Go wild.`)
+          : `Create a unique, sexually explicit story concept using these elements for inspiration:
+
+THEME: ${randomTheme}
+SETTING: ${randomSetting}
+DYNAMIC: ${randomDynamic}
+
+You don't have to use all elements literally - let them inspire you to create something fresh and provocative. Focus on the emotional stakes, moral complexity, and raw desire. Make it feel real and specific, not generic porn. Use crude language naturally. 2-3 sentences max.`)
       : (isEnhancing
           ? `Enhance this concept while keeping its core essence:\n\n${existingPrompt}\n\nGenre: ${genre}\nTone: ${tone}\n\nMake it more intriguing and evocative.`
           : `Genre: ${genre}
