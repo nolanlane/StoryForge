@@ -49,7 +49,12 @@ export const extractJSON = (text) => {
 const repairJSON = (json) => {
   let clean = json.replace(/```json/g, '').replace(/```/g, '').trim();
   
-  // 1. Remove trailing commas before closing braces/brackets
+  // 1. Fix unquoted values with embedded quotes (e.g., height: 5'8")
+  clean = clean.replace(/:\s*(\d+['"]\d*['"]*)/g, (match, value) => {
+    return `: "${value.replace(/"/g, '\\"')}"`;
+  });
+  
+  // 2. Remove trailing commas before closing braces/brackets
   clean = clean.replace(/,(\s*[}\]])/g, '$1');
 
   // 2. Balance braces/brackets using a stack, respecting strings
