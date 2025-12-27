@@ -197,3 +197,14 @@ class AiSequelRequest(BaseModel):
 
 class AiSequelResponse(BaseModel):
     blueprint: dict
+
+
+class PresetCreate(BaseModel):
+    name: str
+    config: dict
+
+
+class PresetResponse(BaseModel):
+    id: str
+    name: str
+    config: dict

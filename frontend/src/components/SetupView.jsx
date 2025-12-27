@@ -1,10 +1,55 @@
-import React, { useState, useMemo } from 'react';
-import { BookOpen, User, Sparkles, Dices, Loader2, Ban, Feather, Cpu, Image as ImageIcon, Shield, Compass, Palette, ChevronDown, ChevronUp, Wand2 } from 'lucide-react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { BookOpen, User, Sparkles, Dices, Loader2, Ban, Feather, Cpu, Image as ImageIcon, Shield, Compass, Palette, ChevronDown, ChevronUp, Wand2, Save, Download } from 'lucide-react';
 import { TEXT_MODELS, IMAGE_MODELS, GENERATION_MODES, IMAGE_STYLE_PRESETS } from '../lib/constants';
+import { useStoryForgeApi } from '../hooks/useStoryForgeApi';
 
 export const SetupView = ({ config, setConfig, generateBlueprint, onRollDice, userEmail, onOpenAuth, onOpenLibrary, onLogout }) => {
   const [isRolling, setIsRolling] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [presets, setPresets] = useState([]);
+  const [showSavePreset, setShowSavePreset] = useState(false);
+  const [newPresetName, setNewPresetName] = useState("");
+  const { apiFetch } = useStoryForgeApi();
+
+  useEffect(() => {
+    if (userEmail) {
+      apiFetch('/api/presets')
+        .then(setPresets)
+        .catch(console.error);
+    }
+  }, [userEmail, apiFetch]);
+
+  const handleSavePreset = async () => {
+    if (!newPresetName.trim()) return;
+    try {
+      const res = await apiFetch('/api/presets', {
+        method: 'POST',
+        body: JSON.stringify({ name: newPresetName, config })
+      });
+      setPresets(prev => [res, ...prev]);
+      setNewPresetName("");
+      setShowSavePreset(false);
+    } catch (e) {
+      console.error(e);
+      alert("Failed to save preset");
+    }
+  };
+
+  const handleLoadPreset = (presetId) => {
+    const p = presets.find(x => x.id === presetId);
+    if (p) setConfig(p.config);
+  };
+
+  const handleDeletePreset = async (e, id) => {
+    e.stopPropagation();
+    if (!confirm("Delete this preset?")) return;
+    try {
+      await apiFetch(`/api/presets/${id}`, { method: 'DELETE' });
+      setPresets(prev => prev.filter(p => p.id !== id));
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
   const selectedTextModel = useMemo(
     () => TEXT_MODELS.find((m) => m.value === config.textModel) || TEXT_MODELS[0],
@@ -269,16 +314,60 @@ export const SetupView = ({ config, setConfig, generateBlueprint, onRollDice, us
         </div>
 
         {/* Advanced Section Toggle */}
-        <button
-          onClick={() => setAdvancedOpen(!advancedOpen)}
-          className="w-full flex items-center justify-between p-4 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl transition-all text-left group"
-        >
-          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2">
-            <Cpu className="w-3 h-3 text-purple-500" />
-            Advanced Configuration
-          </span>
-          {advancedOpen ? <ChevronUp className="w-4 h-4 text-slate-400 group-hover:text-slate-600" /> : <ChevronDown className="w-4 h-4 text-slate-400 group-hover:text-slate-600" />}
-        </button>
+        <div className="space-y-2">
+           <div className="flex gap-2">
+            <button
+              onClick={() => setAdvancedOpen(!advancedOpen)}
+              className="flex-1 flex items-center justify-between p-4 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl transition-all text-left group"
+            >
+              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2">
+                <Cpu className="w-3 h-3 text-purple-500" />
+                Advanced Configuration
+              </span>
+              {advancedOpen ? <ChevronUp className="w-4 h-4 text-slate-400 group-hover:text-slate-600" /> : <ChevronDown className="w-4 h-4 text-slate-400 group-hover:text-slate-600" />}
+            </button>
+
+            {userEmail && (
+              <div className="relative">
+                 <button
+                   onClick={() => setShowSavePreset(!showSavePreset)}
+                   className="h-full px-4 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl transition-colors text-slate-500"
+                   title="Save/Load Presets"
+                 >
+                   <Save className="w-4 h-4" />
+                 </button>
+                 {showSavePreset && (
+                   <div className="absolute right-0 bottom-full mb-2 w-64 bg-white rounded-xl shadow-xl border border-slate-200 p-3 z-20">
+                      <h4 className="text-xs font-bold text-slate-500 uppercase mb-2">Save Preset</h4>
+                      <div className="flex gap-2 mb-4">
+                        <input
+                           value={newPresetName}
+                           onChange={(e) => setNewPresetName(e.target.value)}
+                           className="flex-1 text-sm border border-slate-200 rounded px-2 py-1"
+                           placeholder="Preset Name"
+                        />
+                        <button onClick={handleSavePreset} className="text-xs bg-purple-600 text-white px-2 rounded">Save</button>
+                      </div>
+
+                      {presets.length > 0 && (
+                        <>
+                           <h4 className="text-xs font-bold text-slate-500 uppercase mb-2">Load Preset</h4>
+                           <div className="max-h-32 overflow-y-auto space-y-1">
+                             {presets.map(p => (
+                               <div key={p.id} className="flex justify-between items-center text-sm p-1 hover:bg-slate-50 rounded group">
+                                  <button onClick={() => handleLoadPreset(p.id)} className="text-left flex-1 truncate">{p.name}</button>
+                                  <button onClick={(e) => handleDeletePreset(e, p.id)} className="text-red-400 hover:text-red-600 opacity-0 group-hover:opacity-100 px-1">&times;</button>
+                               </div>
+                             ))}
+                           </div>
+                        </>
+                      )}
+                   </div>
+                 )}
+              </div>
+            )}
+           </div>
+        </div>
 
         {advancedOpen && (
           <div className="space-y-6 animate-in fade-in slide-in-from-top-2">
