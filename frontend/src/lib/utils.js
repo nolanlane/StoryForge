@@ -10,215 +10,192 @@ export const safeJsonParse = (raw, fallback) => {
 };
 
 export const extractJSON = (text) => {
+  // Step 1: Clean markdown wrappers
+  let clean = text.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
+  
+  // Step 2: Find the JSON object boundaries
+  const firstBrace = clean.indexOf('{');
+  if (firstBrace === -1) {
+    console.error("No JSON object found in text:", text.substring(0, 200));
+    throw new Error("The Architect failed to draft a valid blueprint. Please try again.");
+  }
+  
+  // Step 3: Extract just the JSON portion using brace matching
+  let jsonStr = extractJSONObject(clean, firstBrace);
+  
+  // Step 4: Try parsing directly first
   try {
-    let clean = text.replace(/```json/g, '').replace(/```/g, '');
-    const first = clean.indexOf('{');
-    const last = clean.lastIndexOf('}');
-    if (first !== -1 && last !== -1) {
-      clean = clean.substring(first, last + 1);
-    }
-    const parsed = JSON.parse(clean);
+    const parsed = JSON.parse(jsonStr);
     if (!parsed.chapters || !Array.isArray(parsed.chapters)) {
-        throw new Error("JSON missing 'chapters' array");
+      throw new Error("JSON missing 'chapters' array");
     }
     return parsed;
   } catch (e) {
-    try {
-      // Attempt to repair common AI JSON errors
-      let repaired = repairJSON(text);
-      
-      // Re-apply extraction logic on the repaired string in case repairJSON preserved garbage
-      const first = repaired.indexOf('{');
-      const last = repaired.lastIndexOf('}');
-      if (first !== -1 && last !== -1) {
-          repaired = repaired.substring(first, last + 1);
-      }
-      
-      const parsed = JSON.parse(repaired);
-      if (!parsed.chapters || !Array.isArray(parsed.chapters)) {
-          throw new Error("JSON missing 'chapters' array");
-      }
-      return parsed;
-    } catch (repairErr) {
-      console.error("JSON Parse Error on text:", text);
-      throw new Error("The Architect failed to draft a valid blueprint. Please try again.");
+    // Step 5: Apply repairs and try again
+    console.log("Initial parse failed, attempting repair...", e.message);
+  }
+  
+  // Step 6: Repair the JSON
+  jsonStr = repairJSON(jsonStr);
+  
+  try {
+    const parsed = JSON.parse(jsonStr);
+    if (!parsed.chapters || !Array.isArray(parsed.chapters)) {
+      throw new Error("JSON missing 'chapters' array");
     }
+    return parsed;
+  } catch (e) {
+    console.error("JSON Parse Error after repair:", e.message);
+    console.error("Repaired JSON:", jsonStr.substring(0, 500));
+    throw new Error("The Architect failed to draft a valid blueprint. Please try again.");
   }
 };
 
+// Extract a JSON object starting at startIdx, handling nested braces properly
+const extractJSONObject = (str, startIdx) => {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  let endIdx = startIdx;
+  
+  for (let i = startIdx; i < str.length; i++) {
+    const char = str[i];
+    
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    
+    if (char === '\\' && inString) {
+      escaped = true;
+      continue;
+    }
+    
+    if (char === '"' && !escaped) {
+      inString = !inString;
+      continue;
+    }
+    
+    if (inString) continue;
+    
+    if (char === '{' || char === '[') {
+      depth++;
+    } else if (char === '}' || char === ']') {
+      depth--;
+      if (depth === 0) {
+        endIdx = i;
+        break;
+      }
+    }
+  }
+  
+  // If we didn't find a proper end, take everything and let repair handle it
+  if (depth !== 0) {
+    return str.substring(startIdx);
+  }
+  
+  return str.substring(startIdx, endIdx + 1);
+};
+
 const repairJSON = (json) => {
-  let clean = json.replace(/```json/g, '').replace(/```/g, '').trim();
+  let str = json;
   
-  // 1. Fix unquoted values with embedded quotes (e.g., height: 5'8")
-  clean = clean.replace(/:\s*(\d+['"]\d*['"]*)/g, (match, value) => {
-    return `: "${value.replace(/"/g, '\\"')}"`;
-  });
+  // 1. Fix common string issues by rebuilding the JSON character by character
+  let result = '';
+  let inString = false;
+  let escaped = false;
+  let braceStack = [];
   
-  // 2. Fix unescaped quotes in string values (e.g., "title": "Siren' ")
-  // This handles single quotes inside double-quoted strings
-  clean = clean.replace(/"([^"]*)'([^"]*?)"\s*([,}\]])/g, (match, before, after, delimiter) => {
-    return `"${before}\\'${after}"${delimiter}`;
-  });
+  for (let i = 0; i < str.length; i++) {
+    const char = str[i];
+    const nextChar = str[i + 1] || '';
+    
+    if (escaped) {
+      result += char;
+      escaped = false;
+      continue;
+    }
+    
+    if (char === '\\' && inString) {
+      result += char;
+      escaped = true;
+      continue;
+    }
+    
+    if (char === '"') {
+      // Check for unescaped quotes inside strings (common AI error)
+      if (inString) {
+        // Look ahead to see if this is a real string end or a mistake
+        const afterQuote = str.substring(i + 1).trimStart();
+        const isRealEnd = /^[,}\]:]/.test(afterQuote) || afterQuote.length === 0;
+        
+        if (!isRealEnd && !/^\s*"/.test(afterQuote)) {
+          // This quote is probably inside the string - escape it
+          result += '\\"';
+          continue;
+        }
+      }
+      inString = !inString;
+      result += char;
+      continue;
+    }
+    
+    if (inString) {
+      // Handle problematic characters inside strings
+      if (char === '\n' || char === '\r') {
+        result += '\\n';
+        continue;
+      }
+      if (char === '\t') {
+        result += '\\t';
+        continue;
+      }
+      result += char;
+      continue;
+    }
+    
+    // Outside strings - track braces
+    if (char === '{' || char === '[') {
+      braceStack.push(char);
+      result += char;
+    } else if (char === '}' || char === ']') {
+      const expected = char === '}' ? '{' : '[';
+      if (braceStack.length > 0 && braceStack[braceStack.length - 1] === expected) {
+        braceStack.pop();
+      }
+      result += char;
+    } else {
+      result += char;
+    }
+  }
+  
+  // 2. Close any unclosed strings
+  if (inString) {
+    result += '"';
+  }
   
   // 3. Remove trailing commas before closing braces/brackets
-  clean = clean.replace(/,(\s*[}\]])/g, '$1');
-
-  // 2. Balance braces/brackets using a stack, respecting strings
-  let stack = [];
-  let fixed = '';
-  let inString = false;
-  let isEscaped = false;
-  let currentString = '';
-  let pendingQuote = false; // Track if we just finished a string and waiting to see if it's a key
+  result = result.replace(/,(\s*[}\]])/g, '$1');
   
-  // Find the first { or [ to start
-  const firstBrace = clean.search(/[{[]/);
-  if (firstBrace === -1) return clean;
-  
-  const preamble = clean.substring(0, firstBrace);
-  clean = clean.substring(firstBrace);
-
-  const ROOT_KEYS = [
-      "chapters", "characters", "visual_dna", "character_visuals", 
-      "title", "synopsis", "naming_convention", 
-      "central_conflict_engine", "narrative_structure"
-  ];
-
-  for (let i = 0; i < clean.length; i++) {
-      const char = clean[i];
-      
-      if (inString) {
-          currentString += char;
-          if (isEscaped) {
-              isEscaped = false;
-          } else if (char === '\\') {
-              isEscaped = true;
-          } else if (char === '"') {
-              inString = false;
-              pendingQuote = true;
-          }
-          continue;
-      }
-      
-      if (char === '"') {
-          inString = true;
-          currentString = '"';
-          continue;
-      }
-      
-      // If we are pending a quote check (just finished a string)
-      if (pendingQuote) {
-          if (char.trim() === '') {
-             // whitespace, ignore, keep pending
-          } else if (char === ':') {
-             // It IS a key!
-             const keyName = currentString.replace(/"/g, ''); 
-             if (ROOT_KEYS.includes(keyName) && stack.length > 1) {
-                 // UNWIND!
-                 // Check if fixed ends with comma
-                 let insertPos = fixed.length;
-                 let hasComma = false;
-                 // Scan back for comma skipping whitespace
-                 for (let k = fixed.length - 1; k >= 0; k--) {
-                     if (/\s/.test(fixed[k])) continue;
-                     if (fixed[k] === ',') {
-                         insertPos = k;
-                         hasComma = true;
-                     }
-                     break;
-                 }
-                 
-                 let closers = '';
-                 // Close everything except the root brace
-                 while(stack.length > 1) {
-                     const last = stack.pop();
-                     closers += (last === '{' ? '}' : ']');
-                 }
-                 
-                 if (hasComma) {
-                     // Insert closers BEFORE the comma
-                     fixed = fixed.slice(0, insertPos) + closers + fixed.slice(insertPos);
-                 } else {
-                     // Insert closers AND a comma
-                     fixed += closers + ',';
-                 }
-             }
-             
-             // Flush the string and the current char (:)
-             fixed += currentString + char;
-             currentString = '';
-             pendingQuote = false;
-             continue; 
-          } else {
-             // Not a key (maybe a value in a list, or comma came before?)
-             // Flush currentString
-             fixed += currentString;
-             currentString = '';
-             pendingQuote = false;
-             // Continue processing this char (e.g. comma or close brace)
-             // Fall through
-          }
-      } else if (currentString.length > 0) {
-          // We had a string but hit something else immediately
-          fixed += currentString;
-          currentString = '';
-      }
-
-      // Normal processing
-      if (char === '{' || char === '[') {
-          stack.push(char);
-          fixed += char;
-      } else if (char === '}' || char === ']') {
-          if (stack.length === 0) continue; // Ignore extra closers
-          
-          const last = stack[stack.length - 1];
-          const expectedOpener = char === '}' ? '{' : '[';
-
-          if (last === expectedOpener) {
-              stack.pop();
-              fixed += char;
-          } else {
-              // Mismatch logic
-              let foundIdx = -1;
-              for (let j = stack.length - 1; j >= 0; j--) {
-                  if (stack[j] === expectedOpener) {
-                      foundIdx = j;
-                      break;
-                  }
-              }
-
-              if (foundIdx !== -1) {
-                  // Unwind stack to the match
-                  while (stack.length > foundIdx + 1) {
-                      const unclosed = stack.pop();
-                      fixed += (unclosed === '{' ? '}' : ']');
-                  }
-                  stack.pop(); // Pop the expectedOpener
-                  fixed += char;
-              } else {
-                  // Typo correction or ignore
-                  if (last === '{' && char === ']') {
-                      fixed += '}';
-                      stack.pop();
-                  } else if (last === '[' && char === '}') {
-                      fixed += ']';
-                      stack.pop();
-                  }
-              }
-          }
-      } else {
-          fixed += char;
-      }
+  // 4. Close any unclosed braces/brackets
+  while (braceStack.length > 0) {
+    const opener = braceStack.pop();
+    result += opener === '{' ? '}' : ']';
   }
   
-  // Close any remaining open structures
-  while (stack.length > 0) {
-      const last = stack.pop();
-      if (last === '{') fixed += '}';
-      else if (last === '[') fixed += ']';
-  }
+  // 5. Fix incomplete key-value pairs at the end (common truncation issue)
+  // Pattern: "key": followed by end or closing brace without value
+  result = result.replace(/"([^"]+)":\s*([}\]])/g, '"$1": null$2');
+  result = result.replace(/"([^"]+)":\s*$/g, '"$1": null');
   
-  return preamble + fixed;
+  // 6. Fix missing values after colons
+  result = result.replace(/:\s*,/g, ': null,');
+  result = result.replace(/:\s*}/g, ': null}');
+  
+  // 7. Fix double commas
+  result = result.replace(/,\s*,/g, ',');
+  
+  return result;
 };
 
 export const cleanImagePrompt = (basePrompt) => {

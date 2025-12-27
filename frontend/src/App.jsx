@@ -175,13 +175,6 @@ export default function App() {
     const existingPrompt = config.prompt?.trim() || '';
     const isEnhancing = existingPrompt.length > 0;
     
-    console.log('Roll Dice/Enhance triggered:', {
-      isXStory,
-      isEnhancing,
-      existingPromptLength: existingPrompt.length,
-      existingPromptPreview: existingPrompt.substring(0, 50)
-    });
-    
     // XStory variety mechanisms
     const xstoryThemes = [
       'forbidden relationships', 'workplace affairs', 'public encounters', 'taboo dynamics',
@@ -260,19 +253,29 @@ Tone: ${tone}
 
 Write the concept now. Complete sentences only.`);
     
+    // XStory uses its own generation config - don't let app-level settings override
+    const xstoryGenConfig = {
+      temperature: 1.0,
+      topP: 0.95,
+      topK: 64,
+      maxOutputTokens: 512,
+    };
+    
+    const regularGenConfig = {
+      temperature: 0.9,
+      topP: 0.95,
+      topK: 40,
+      maxOutputTokens: 512,
+      ...(config.generationConfig || {})
+    };
+    
     try {
         const text = await callGeminiText(
           systemPrompt,
           userPrompt,
           false,
           45000,
-          {
-            temperature: 0.9,
-            topP: 0.95,
-            topK: 40,
-            maxOutputTokens: 2048,
-            ...(config.generationConfig || {})
-          },
+          isXStory ? xstoryGenConfig : regularGenConfig,
           config.textModel,
           config.textFallbackModel
         );
