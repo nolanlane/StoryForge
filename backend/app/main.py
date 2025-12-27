@@ -4,7 +4,7 @@ import os
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, HTTPException
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,7 +13,7 @@ from sqlalchemy.future import select
 from .auth import create_access_token, get_current_user, hash_password, verify_password
 from .config import settings
 from .db import Base, engine, get_db
-from .gemini_client import gemini_generate_image, gemini_generate_text
+from .gemini_client import gemini_generate_image, gemini_generate_text, gemini_generate_text_stream, safe_error_detail
 from .models import User
 from .schemas import (
     AiChapterRequest,
@@ -271,8 +271,16 @@ async def ai_text(
         )
         return AiTextResponse(text=text)
     except Exception as e:
-        logger.error("AI Text Generation failed (%s)", type(e).__name__)
-        raise HTTPException(status_code=502, detail="AI provider request failed")
+        logger.error("AI Text Generation failed: %s", str(e))
+        detail = "AI provider request failed"
+        if isinstance(e, ValueError):
+            detail = str(e)
+        elif hasattr(e, "response") and e.response is not None:
+            d = safe_error_detail(e.response)
+            if d:
+                detail = f"Provider Error: {d}"
+        
+        raise HTTPException(status_code=502, detail=detail)
 
 
 @app.post("/api/ai/chapter", response_model=AiTextResponse)
@@ -314,8 +322,86 @@ async def ai_chapter(
         )
         return AiTextResponse(text=text)
     except Exception as e:
-        logger.error("AI Chapter Generation failed (%s)", type(e).__name__)
-        raise HTTPException(status_code=502, detail="AI provider request failed")
+        logger.error("AI Chapter Generation failed: %s", str(e))
+        detail = "AI provider request failed"
+        if isinstance(e, ValueError):
+            detail = str(e)
+        elif hasattr(e, "response") and e.response is not None:
+             from .gemini_client import safe_error_detail
+             d = safe_error_detail(e.response)
+             if d:
+                 detail = f"Provider Error: {d}"
+        raise HTTPException(status_code=502, detail=detail)
+
+
+@app.post("/api/ai/text/stream")
+async def ai_text_stream(
+    req: AiTextRequest, current_user: User = Depends(get_current_user)
+) -> StreamingResponse:
+    timeout_s = (req.timeoutMs / 1000.0) if req.timeoutMs else None
+    
+    async def generator():
+        try:
+            async for chunk in gemini_generate_text_stream(
+                system_prompt=req.systemPrompt,
+                user_prompt=req.userPrompt,
+                timeout_s=timeout_s,
+                generation_config=req.generationConfig,
+                text_model=req.textModel,
+                text_fallback_model=req.textFallbackModel,
+            ):
+                yield chunk
+        except Exception as e:
+            logger.error("AI Stream failed: %s", str(e))
+            # Yield a specific error marker that frontend can detect if stream breaks mid-way
+            yield f"\n\n[ERROR: {str(e)}]"
+
+    return StreamingResponse(generator(), media_type="text/plain")
+
+
+@app.post("/api/ai/chapter/stream")
+async def ai_chapter_stream(
+    req: AiChapterRequest, current_user: User = Depends(get_current_user)
+) -> StreamingResponse:
+    timeout_s = (req.timeoutMs / 1000.0) if req.timeoutMs else None
+    try:
+        chapter_info = req.blueprint.get("chapters", [])[req.chapterIndex]
+    except IndexError:
+        raise HTTPException(422, "Invalid chapter index")
+
+    use_genre_tone = not req.config.get("disableGenreTone", False)
+    system_prompt = prompt_service.get_chapter_system_prompt(
+        writing_style=req.config.get("writingStyle", ""),
+        tone=req.config.get("tone", ""),
+        text_model=req.textModel,
+        use_genre_tone=use_genre_tone,
+    )
+    user_prompt = prompt_service.construct_chapter_user_prompt(
+        blueprint=req.blueprint,
+        chapter_index=req.chapterIndex,
+        chapter_title=chapter_info.get("title", ""),
+        chapter_summary=chapter_info.get("summary", ""),
+        previous_chapter_text=req.previousChapterText,
+        config=req.config,
+        chapter_guidance=req.chapterGuidance,
+    )
+
+    async def generator():
+        try:
+            async for chunk in gemini_generate_text_stream(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                timeout_s=timeout_s,
+                generation_config=req.generationConfig,
+                text_model=req.textModel,
+                text_fallback_model=req.textFallbackModel,
+            ):
+                yield chunk
+        except Exception as e:
+            logger.error("AI Chapter Stream failed: %s", str(e))
+            yield f"\n\n[ERROR: {str(e)}]"
+
+    return StreamingResponse(generator(), media_type="text/plain")
 
 
 @app.post("/api/ai/analyze_blueprint", response_model=AiStoryDoctorResponse)
@@ -353,8 +439,16 @@ async def ai_analyze_blueprint(
             raise ValueError("AI returned invalid suggestion format")
         return AiStoryDoctorResponse(suggestions=suggestions)
     except Exception as e:
-        logger.error("AI Story Doctor failed (%s)", type(e).__name__)
-        raise HTTPException(status_code=502, detail="AI provider request failed")
+        logger.error("AI Story Doctor failed: %s", str(e))
+        detail = "AI provider request failed"
+        if isinstance(e, ValueError):
+            detail = str(e)
+        elif hasattr(e, "response") and e.response is not None:
+             from .gemini_client import safe_error_detail
+             d = safe_error_detail(e.response)
+             if d:
+                 detail = f"Provider Error: {d}"
+        raise HTTPException(status_code=502, detail=detail)
 
 
 @app.post("/api/ai/imagen", response_model=AiImagenResponse)
@@ -372,9 +466,16 @@ async def ai_imagen(
             raise HTTPException(status_code=502, detail="AI provider returned no image")
         return AiImagenResponse(dataUrl=data_url)
     except Exception as e:
-        logger.error("AI Image Generation failed (%s)", type(e).__name__)
-        raise HTTPException(status_code=502, detail="AI provider request failed")
-
+        logger.error("AI Image Generation failed: %s", str(e))
+        detail = "AI provider request failed"
+        if isinstance(e, ValueError):
+            detail = str(e)
+        elif hasattr(e, "response") and e.response is not None:
+             from .gemini_client import safe_error_detail
+             d = safe_error_detail(e.response)
+             if d:
+                 detail = f"Provider Error: {d}"
+        raise HTTPException(status_code=502, detail=detail)
 
 @app.post("/api/ai/sequel", response_model=AiSequelResponse)
 async def ai_sequel(
@@ -415,8 +516,16 @@ async def ai_sequel(
         blueprint = json.loads(_extract_json(text))
         return AiSequelResponse(blueprint=blueprint)
     except Exception as e:
-        logger.error("AI Sequel Generation failed (%s)", type(e).__name__)
-        raise HTTPException(status_code=502, detail="AI provider request failed")
+        logger.error("AI Sequel Generation failed: %s", str(e))
+        detail = "AI provider request failed"
+        if isinstance(e, ValueError):
+            detail = str(e)
+        elif hasattr(e, "response") and e.response is not None:
+             from .gemini_client import safe_error_detail
+             d = safe_error_detail(e.response)
+             if d:
+                 detail = f"Provider Error: {d}"
+        raise HTTPException(status_code=502, detail=detail)
 
 
 def _extract_json(text: str) -> str:

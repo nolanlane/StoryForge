@@ -15,6 +15,15 @@ export const BlueprintView = ({ blueprint, storyImages, setView, startDrafting, 
   // Memoize character parsing to avoid re-parsing on every render
   const parsedCharacters = useMemo(() => 
     (Array.isArray(blueprint.characters) ? blueprint.characters : []).map(char => {
+      if (typeof char !== 'string') {
+        // Graceful fallback for non-string items (e.g. AI returned objects)
+        if (char && typeof char === 'object') {
+           const name = char.Name || char.name || "Unknown";
+           const desc = char.Description || char.description || char.Role || char.role || JSON.stringify(char);
+           return { name: String(name), desc: String(desc) };
+        }
+        return { name: "Unknown", desc: String(char) };
+      }
       const parts = char.split(':');
       return {
         name: parts[0].trim(),

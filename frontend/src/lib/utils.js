@@ -98,3 +98,18 @@ export const fetchWithRetry = async (url, options, retries = 2, backoff = 1000, 
     throw e;
   }
 };
+
+export async function* readStream(response) {
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      yield decoder.decode(value, { stream: true });
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}

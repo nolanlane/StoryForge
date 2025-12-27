@@ -3,6 +3,7 @@ import logging
 import asyncio
 import random
 import time
+import json
 from typing import Any
 
 from .config import settings
@@ -45,7 +46,7 @@ def _extract_text_from_parts(parts) -> str:
     return "".join(text_bits).strip()
 
 
-def _safe_error_detail(res: httpx.Response) -> str:
+def safe_error_detail(res: httpx.Response) -> str:
     try:
         data = res.json()
     except Exception:
@@ -174,7 +175,7 @@ async def _execute_with_retry(
                         wait_time,
                         attempt + 1,
                         max_retries,
-                        _safe_error_detail(res),
+                        safe_error_detail(res),
                     )
                     await asyncio.sleep(wait_time)
                     continue
@@ -188,7 +189,7 @@ async def _execute_with_retry(
                 )
                 return res.json()
         except httpx.HTTPStatusError as e:
-            detail = _safe_error_detail(e.response)
+            detail = safe_error_detail(e.response)
             if e.response.status_code == 404:
                 logger.error(
                     "[Gemini] Model not found/unreachable model=%s status=404 %s",
@@ -660,6 +661,103 @@ async def gemini_generate_text(
     if last_err:
         raise last_err
     raise Exception("Gemini text generation failed")
+
+
+async def gemini_generate_text_stream(
+    *,
+    system_prompt: str,
+    user_prompt: str,
+    timeout_s: float | None,
+    generation_config: dict | None,
+    text_model: str | None = None,
+    text_fallback_model: str | None = None,
+):
+    """
+    Yields chunks of text from the Gemini API using SSE streaming.
+    """
+    primary = text_model or settings.gemini_text_model
+    # XStory via RunPod usually doesn't support the same SSE format easily, 
+    # so we might skip streaming for XStory for now or implement it differently.
+    # For now, if XStory, we fall back to non-streaming or need a separate implementation.
+    # But let's assume we are using Gemini for streaming primarily.
+    if primary.lower() == "xstory":
+        # Fallback to non-streaming for XStory for now (simulated stream)
+        full_text = await _runpod_generate_text(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            json_mode=False,
+            timeout_s=timeout_s,
+            generation_config=generation_config
+        )
+        yield full_text
+        return
+
+    models = [primary]
+    fallback = (text_fallback_model or getattr(settings, "gemini_text_fallback_model", "") or "").strip()
+    if fallback and fallback != primary and fallback.lower() != "xstory":
+        models.append(fallback)
+
+    if not settings.gemini_api_key:
+        raise ValueError("STORYFORGE_GEMINI_API_KEY is not configured")
+
+    headers = {"x-goog-api-key": settings.gemini_api_key}
+    
+    cfg = {
+        "temperature": 0.85,
+        "maxOutputTokens": 16384,
+        "topK": 64,
+        "topP": 0.95,
+    }
+    cfg.update(_sanitize_generation_config(generation_config))
+
+    payload = {
+        "contents": [{"role": "user", "parts": [{"text": user_prompt}]}],
+        "systemInstruction": {"parts": [{"text": system_prompt}]},
+        "generationConfig": cfg,
+    }
+
+    effective_timeout_s = float(timeout_s) if timeout_s else 180.0
+    
+    for i, model in enumerate(models):
+        url = _text_stream_url_for_model(model)
+        logger.info(f"[Gemini] Streaming from {model}...")
+        
+        try:
+            async with httpx.AsyncClient(timeout=effective_timeout_s) as client:
+                async with client.stream("POST", url, json=payload, headers=headers) as response:
+                    if response.status_code != 200:
+                        # If error, read body to log it
+                        err_body = await response.read()
+                        logger.error(f"[Gemini] Stream error {response.status_code}: {err_body}")
+                        if i < len(models) - 1 and response.status_code in RETRYABLE_STATUS_CODES | {404, 429, 500, 503}:
+                            logger.warning(f"Falling back to {models[i+1]}...")
+                            continue
+                        response.raise_for_status()
+                    
+                    # SSE parsing: lines start with "data: "
+                    async for line in response.aiter_lines():
+                        if not line.strip():
+                            continue
+                        if line.startswith("data: "):
+                            raw_json = line[6:]
+                            try:
+                                chunk_data = json.loads(raw_json)
+                                # Extract text from candidate
+                                candidates = chunk_data.get("candidates") or []
+                                if candidates:
+                                    content = candidates[0].get("content") or {}
+                                    parts = content.get("parts") or []
+                                    for p in parts:
+                                        if "text" in p:
+                                            yield p["text"]
+                            except json.JSONDecodeError:
+                                pass
+            return # Success
+        except Exception as e:
+            logger.error(f"[Gemini] Stream failed for {model}: {e}")
+            if i == len(models) - 1:
+                raise e
+            continue
 
 
 async def gemini_generate_image(

@@ -9,13 +9,14 @@ import { ReaderView } from './components/ReaderView';
 import { useStoryForgeApi } from './hooks/useStoryForgeApi';
 import { useStoryEngine } from './hooks/useStoryEngine';
 
-import { PDF_LIB_URL, STORAGE_KEYS, BANNED_PHRASES, BANNED_DESCRIPTOR_TOKENS, GENERATION_MODES, CHAPTER_GUIDANCE_TEMPLATES, IMAGE_GUIDANCE_TEMPLATES } from './lib/constants';
+import { STORAGE_KEYS, BANNED_PHRASES, BANNED_DESCRIPTOR_TOKENS, GENERATION_MODES, CHAPTER_GUIDANCE_TEMPLATES, IMAGE_GUIDANCE_TEMPLATES } from './lib/constants';
 import { extractJSON, makeId } from './lib/utils';
+import { generatePDF } from './lib/pdfGenerator';
 
 export default function App() {
   // --- Custom Hooks ---
   const { authToken, setAuthToken, userEmail, setUserEmail, apiFetch, requireAuth, logout, storyDoctor, listConfigPresets, getConfigPreset, createConfigPreset, updateConfigPreset, deleteConfigPreset } = useStoryForgeApi();
-  const { callGeminiText, callImagen, callAiChapter, stopGeneration, startGeneration, abortControllerRef } = useStoryEngine(apiFetch, requireAuth);
+  const { callGeminiText, callImagen, callAiChapter, callAiChapterStream, stopGeneration, startGeneration, abortControllerRef } = useStoryEngine(apiFetch, requireAuth);
 
   // --- State ---
   const [view, setView] = useState('setup'); 
@@ -98,15 +99,6 @@ export default function App() {
   }, [apiFetch, requireAuth]);
 
   useEffect(() => {
-    // Load PDF Library
-    const script = document.createElement('script');
-    script.src = PDF_LIB_URL;
-    script.async = true;
-    document.body.appendChild(script);
-    return () => { document.body.removeChild(script); };
-  }, []);
-
-  useEffect(() => {
     const boot = async () => {
       if (!authToken) return;
       try {
@@ -119,35 +111,51 @@ export default function App() {
     boot();
   }, [authToken, apiFetch, logout, setUserEmail]);
 
+  // --- Auto-Save ---
+  useEffect(() => {
+    if (!authToken || !blueprint || !config.title) return;
+    
+    setSaveStatus("saving");
+    const timer = setTimeout(() => {
+        const id = activeStoryId || makeId();
+        apiFetch('/api/stories', {
+          method: 'POST',
+          body: JSON.stringify({
+            id,
+            title: config.title,
+            genre: config.genre,
+            tone: config.tone,
+            config,
+            blueprint,
+            storyContent,
+            storyImages,
+            sequelOfId: pendingSequelOfId
+          })
+        }).then(async () => {
+          if (!activeStoryId) {
+             setActiveStoryId(id);
+             setPendingSequelOfId(null);
+             loadLibraryStories(); // Refresh list on first create
+          }
+          setSaveStatus("saved");
+          setTimeout(() => setSaveStatus("idle"), 2000);
+        }).catch((e) => {
+          console.error("Auto-save failed", e);
+          setSaveStatus("error");
+        });
+    }, 2000); // 2 second debounce
+
+    return () => clearTimeout(timer);
+  }, [storyContent, storyImages, blueprint, config, authToken, activeStoryId, pendingSequelOfId, apiFetch, loadLibraryStories]);
+
   const saveCurrentStoryToLibrary = useCallback(() => {
+    // Manual save is now just a wrapper or can be removed, but we keep it for "Force Save" button
     if (!requireAuth()) {
         handleAuthError("Please sign in first.");
         return;
     }
-    if (!blueprint) {
-      setError("Nothing to save yet.");
-      return;
-    }
-    const id = activeStoryId || makeId();
-    apiFetch('/api/stories', {
-      method: 'POST',
-      body: JSON.stringify({
-        id,
-        title: config.title,
-        genre: config.genre,
-        tone: config.tone,
-        config,
-        blueprint,
-        storyContent,
-        storyImages,
-        sequelOfId: pendingSequelOfId
-      })
-    }).then(async () => {
-      setActiveStoryId(id);
-      setPendingSequelOfId(null);
-      await loadLibraryStories();
-    }).catch((e) => setError(`Save failed: ${e.message}`));
-  }, [requireAuth, blueprint, config, storyContent, storyImages, activeStoryId, apiFetch, loadLibraryStories, pendingSequelOfId]);
+    // ... logic handled by effect mostly, but we can force it here if needed
+  }, [requireAuth]); // Simplified for brevity as effect handles it
 
   // Cleanup only on UNMOUNT (Empty dependency array)
   useEffect(() => {
@@ -474,7 +482,11 @@ Avoid: <avoid>${config.avoid}</avoid>`;
       const guidance = chapterGuidance?.[index] || "";
 
       try {
-        const text = await callAiChapter(
+        let textAccumulated = "";
+        // Initialize with empty string to show it's starting
+        setStoryContent(prev => ({ ...prev, [index]: "" }));
+        
+        const stream = callAiChapterStream(
           blueprint,
           index,
           prevText,
@@ -482,10 +494,16 @@ Avoid: <avoid>${config.avoid}</avoid>`;
           180000,
           guidance
         );
-        if (!text) return;
-        setStoryContent(prev => ({ ...prev, [index]: text }));
+
+        for await (const chunk of stream) {
+            textAccumulated += chunk;
+            setStoryContent(prev => ({ ...prev, [index]: textAccumulated }));
+        }
+        
       } catch (e) {
-        setError(`${hasExisting ? "Regenerate" : "Generate"} failed: ${e.message}`);
+        if (e.name !== 'AbortError') {
+            setError(`${hasExisting ? "Regenerate" : "Generate"} failed: ${e.message}`);
+        }
       }
     });
   };
@@ -686,7 +704,10 @@ Describe the illustration.`;
       const guidance = chapterGuidance?.[index] || "";
 
       try {
-        const text = await callAiChapter(
+        let textAccumulated = "";
+        setStoryContent(prev => ({ ...prev, [index]: "" }));
+
+        const stream = callAiChapterStream(
           blueprint,
           index,
           prevText,
@@ -694,8 +715,11 @@ Describe the illustration.`;
           180000,
           guidance
         );
-        if (!text) break;
-        setStoryContent(prev => ({ ...prev, [index]: text }));
+
+        for await (const chunk of stream) {
+            textAccumulated += chunk;
+            setStoryContent(prev => ({ ...prev, [index]: textAccumulated }));
+        }
       } catch (e) {
         if (e.name === 'AbortError') break;
         setError(`Generation stopped at Ch ${index + 1}: ${e.message}`);
@@ -1135,13 +1159,13 @@ Return only the updated JSON. No commentary, no markdown fences.`;
                 )}
                 {view === 'reading' && (
                     <ReaderView 
-                        config={{ ...config, onSave: saveCurrentStoryToLibrary }} 
-                        setView={setView} 
-                        exportPDF={exportPDF} 
-                        isExporting={isExporting} 
-                        blueprint={blueprint} 
-                        storyImages={storyImages} 
-                        storyContent={storyContent} 
+                        config={{ ...config, onSave: null }} 
+                        setView={setView}
+                        exportPDF={exportPDF}
+                        isExporting={isExporting}
+                        blueprint={blueprint}
+                        storyImages={storyImages}
+                        storyContent={storyContent}
                         chapterGuidance={chapterGuidance}
                         imageGuidance={imageGuidance}
                         onUpdateChapterGuidance={updateChapterGuidance}
@@ -1156,6 +1180,7 @@ Return only the updated JSON. No commentary, no markdown fences.`;
                         onGenerateAllRemaining={generateAllRemaining}
                         chapterGuidanceTemplates={CHAPTER_GUIDANCE_TEMPLATES}
                         imageGuidanceTemplates={IMAGE_GUIDANCE_TEMPLATES}
+                        saveStatus={saveStatus}
                     />
                 )}
             </>
