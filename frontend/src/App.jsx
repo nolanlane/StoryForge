@@ -217,17 +217,17 @@ export default function App() {
     
     const systemPrompt = isXStory
       ? (isEnhancing 
-          ? `You are enhancing adult story concepts. Take the user's concept and amplify the tension, specificity, and emotional stakes. Add layers of complexity and consequence. Keep it 2-3 sentences. Be direct and explicit where it serves the story.`
-          : `You are writing adult story concepts with mature themes. Write 2-3 sentences that capture a specific, emotionally complex scenario with real stakes and consequences.
+          ? `You are enhancing adult story concepts. Use explicit vocabulary naturally: fuck, fucking, cock, pussy, dick, ass, tits, cum, sex, horny, wet, hard. Take the user's concept and amplify the sexual tension, specificity, and emotional stakes. Add graphic details and layers of complexity. Keep it 2-3 sentences.`
+          : `You are writing sexually explicit adult story concepts. Use crude vocabulary naturally in your writing: fuck, fucking, cock, pussy, dick, ass, tits, cum, sex, screw, bang, horny, wet, hard, suck. Write 2-3 sentences with specific, graphic scenarios that have real emotional stakes.
 
-Good concepts feel real and grounded:
-"She's been sleeping with her husband's brother for six months. Tonight's the family reunion, and neither can keep their distance. Her husband keeps asking why she's being so friendly."
+Examples:
+"She's been fucking her husband's brother for six months. Tonight's the family reunion, and she can't stop thinking about his cock. Her husband keeps asking why she's being so touchy with his brother."
 
-"The divorce lawyer is attracted to his client. She noticed first. Now they're in his office after hours, crossing every professional line."
+"The divorce lawyer got hard watching his client during her deposition. She noticed the bulge in his pants first. Now they're in his office after hours, and she's promising to suck his dick if he wins her case."
 
-"He hired a cam girl. She turned out to be his daughter's college roommate. She recognized him and doubled her rates."
+"He hired a cam girl to strip for him online. She turned out to be his daughter's roommate. She recognized him immediately, smiled, and said it would cost extra to keep quiet."
 
-Write something similarly specific and grounded.`)
+Write something similarly explicit and grounded.`)
       : (isEnhancing
           ? `You are a master story concept enhancer. Take the user's existing concept and make it more evocative, intriguing, and compelling.
 
