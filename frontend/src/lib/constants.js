@@ -47,6 +47,11 @@ export const TEXT_MODELS = [
     label: "Gemini 2.0 Flash (experimental)",
     description: "Experimental 2.0 Flash."
   },
+  {
+    value: "xstory",
+    label: "XStory (Uncensored)",
+    description: "Uncensored vLLM model via RunPod. No content restrictions."
+  },
 ];
 
 export const IMAGE_MODELS = [

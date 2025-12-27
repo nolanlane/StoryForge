@@ -11,6 +11,12 @@ class Settings(BaseSettings):
     gemini_text_timeout_s: float = 180.0
     imagen_model: str = "gemini-2.5-flash-image"
     imagen_timeout_s: float = 45.0
+    
+    # RunPod vLLM endpoint for XStory uncensored model
+    runpod_api_key: str = ""
+    runpod_endpoint_id: str = "w13kht6fc6ez37"
+    runpod_timeout_s: float = 180.0
+    
     jwt_secret: str
     jwt_algorithm: str = "HS256"
     access_token_exp_minutes: int = 60 * 24 * 7

@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { BookOpen, User, Sparkles, Dices, Loader2, Ban, Feather, Cpu, Image as ImageIcon, Shield, Compass, Palette, ChevronDown, ChevronUp } from 'lucide-react';
+import { BookOpen, User, Sparkles, Dices, Loader2, Ban, Feather, Cpu, Image as ImageIcon, Shield, Compass, Palette, ChevronDown, ChevronUp, Wand2 } from 'lucide-react';
 import { TEXT_MODELS, IMAGE_MODELS, GENERATION_MODES, IMAGE_STYLE_PRESETS } from '../lib/constants';
 
 export const SetupView = ({ config, setConfig, generateBlueprint, onRollDice, userEmail, onOpenAuth, onOpenLibrary, onLogout }) => {

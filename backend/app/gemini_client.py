@@ -19,6 +19,7 @@ TEXT_MODEL_ALLOWLIST: dict[str, str] = {
     "gemini-2.0-flash": "Gemini 2.0 Flash – previous-gen fast model",
     "gemini-2.0-flash-001": "Gemini 2.0 Flash stable variant",
     "gemini-2.0-flash-exp": "Gemini 2.0 Flash experimental",
+    "xstory": "XStory – uncensored vLLM via RunPod",
 }
 
 IMAGE_MODEL_ALLOWLIST: dict[str, str] = {
@@ -326,6 +327,74 @@ async def _gemini_generate_text_with_model(
     return text
 
 
+async def _runpod_generate_text(
+    *,
+    system_prompt: str,
+    user_prompt: str,
+    timeout_s: float | None,
+    generation_config: dict | None,
+) -> str:
+    """Generate text using RunPod vLLM endpoint for XStory model."""
+    if not settings.runpod_api_key:
+        logger.error("[RunPod] API key is not set!")
+        raise ValueError("STORYFORGE_RUNPOD_API_KEY is not configured")
+
+    effective_timeout_s = (
+        float(timeout_s) if timeout_s else float(settings.runpod_timeout_s)
+    )
+    
+    # Combine system and user prompts for vLLM
+    combined_prompt = f"{system_prompt}\n\n{user_prompt}"
+    
+    payload = {
+        "input": {
+            "prompt": combined_prompt
+        }
+    }
+    
+    url = f"https://api.runpod.ai/v2/{settings.runpod_endpoint_id}/run"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {settings.runpod_api_key}"
+    }
+    
+    logger.info(
+        "[RunPod] Calling vLLM endpoint=%s timeout_s=%s",
+        settings.runpod_endpoint_id,
+        effective_timeout_s,
+    )
+    
+    async with httpx.AsyncClient(timeout=effective_timeout_s) as client:
+        try:
+            response = await client.post(url, json=payload, headers=headers)
+            response.raise_for_status()
+            data = response.json()
+            
+            # RunPod vLLM response format
+            if isinstance(data, dict):
+                output = data.get("output")
+                if isinstance(output, dict):
+                    text = output.get("text") or output.get("output")
+                    if text:
+                        return str(text).strip()
+                elif isinstance(output, str):
+                    return output.strip()
+            
+            logger.error("[RunPod] Unexpected response format: %s", data)
+            raise ValueError("Invalid response format from RunPod")
+            
+        except httpx.HTTPStatusError as e:
+            logger.error(
+                "[RunPod] HTTP error status=%s message=%s",
+                e.response.status_code,
+                e.response.text[:500],
+            )
+            raise
+        except httpx.RequestError as e:
+            logger.error("[RunPod] Network error: %s", str(e))
+            raise
+
+
 async def gemini_generate_text(
     *,
     system_prompt: str,
@@ -337,9 +406,20 @@ async def gemini_generate_text(
     text_fallback_model: str | None = None,
 ) -> str:
     primary = text_model or settings.gemini_text_model
+    
+    # Route XStory requests to RunPod - no fallback for XStory
+    if primary.lower() == "xstory":
+        return await _runpod_generate_text(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            timeout_s=timeout_s,
+            generation_config=generation_config,
+        )
+    
+    # Don't use XStory as fallback for other models
     fallback = (text_fallback_model or getattr(settings, "gemini_text_fallback_model", "") or "").strip()
     models: list[str] = [primary]
-    if fallback and fallback != primary:
+    if fallback and fallback != primary and fallback.lower() != "xstory":
         models.append(fallback)
 
     last_err: Exception | None = None
