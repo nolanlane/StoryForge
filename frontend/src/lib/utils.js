@@ -54,7 +54,13 @@ const repairJSON = (json) => {
     return `: "${value.replace(/"/g, '\\"')}"`;
   });
   
-  // 2. Remove trailing commas before closing braces/brackets
+  // 2. Fix unescaped quotes in string values (e.g., "title": "Siren' ")
+  // This handles single quotes inside double-quoted strings
+  clean = clean.replace(/"([^"]*)'([^"]*?)"\s*([,}\]])/g, (match, before, after, delimiter) => {
+    return `"${before}\\'${after}"${delimiter}`;
+  });
+  
+  // 3. Remove trailing commas before closing braces/brackets
   clean = clean.replace(/,(\s*[}\]])/g, '$1');
 
   // 2. Balance braces/brackets using a stack, respecting strings
