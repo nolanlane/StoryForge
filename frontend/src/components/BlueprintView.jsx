@@ -1,19 +1,38 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { ChevronRight, Loader2, Sparkles } from 'lucide-react';
 
 export const BlueprintView = ({ blueprint, storyImages, setView, startDrafting, onAbort, chatMessages, chatInput, setChatInput, onSendChat, isChatWorking, storyDoctor }) => {
   const [storyDoctorSuggestions, setStoryDoctorSuggestions] = useState(null);
   const [isDoctorWorking, setIsDoctorWorking] = useState(false);
+  const [doctorError, setDoctorError] = useState(null);
+  const chatEndRef = useRef(null);
+
+  // Auto-scroll chat to bottom when messages change
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [chatMessages]);
+
+  // Memoize character parsing to avoid re-parsing on every render
+  const parsedCharacters = useMemo(() => 
+    (Array.isArray(blueprint.characters) ? blueprint.characters : []).map(char => {
+      const parts = char.split(':');
+      return {
+        name: parts[0].trim(),
+        desc: parts.slice(1).join(':').trim()
+      };
+    }), [blueprint.characters]
+  );
 
   const getStoryDoctorSuggestions = useCallback(async () => {
     if (!blueprint) return;
     setIsDoctorWorking(true);
     setStoryDoctorSuggestions(null);
+    setDoctorError(null);
     try {
       const suggestions = await storyDoctor(blueprint);
       setStoryDoctorSuggestions(suggestions);
     } catch (error) {
-      setStoryDoctorSuggestions(`<p class="text-red-500">Sorry, the Story Doctor is having trouble thinking right now. Please try again later.</p>`);
+      setDoctorError("Sorry, the Story Doctor is having trouble thinking right now. Please try again later.");
       console.error("Error getting story doctor suggestions:", error);
     } finally {
       setIsDoctorWorking(false);
@@ -72,6 +91,7 @@ export const BlueprintView = ({ blueprint, storyImages, setView, startDrafting, 
             className="h-64 overflow-y-auto rounded-lg border-2 border-purple-100 bg-white p-4 space-y-3 mb-4 scrollbar-thin scrollbar-thumb-purple-200"
             role="log"
             aria-live="polite"
+            aria-busy={isChatWorking}
           >
             {chatMessages.length === 0 ? (
               <div className="text-sm text-slate-600 leading-relaxed">
@@ -91,6 +111,21 @@ export const BlueprintView = ({ blueprint, storyImages, setView, startDrafting, 
                 </div>
               ))
             )}
+            <div ref={chatEndRef} />
+          </div>
+
+          <div className="flex gap-2 flex-wrap mb-2">
+            {['Make it darker and grittier', 'Increase romantic tension', 'Add more action scenes', 'Simplify the plot'].map(action => (
+              <button
+                key={action}
+                onClick={() => { setChatInput(action); }}
+                disabled={isChatWorking || isDoctorWorking}
+                className="px-2 py-1 text-xs bg-purple-100 hover:bg-purple-200 text-purple-700 rounded transition-colors disabled:opacity-50"
+                type="button"
+              >
+                {action}
+              </button>
+            ))}
           </div>
 
           <form
@@ -126,18 +161,27 @@ export const BlueprintView = ({ blueprint, storyImages, setView, startDrafting, 
           </form>
         </div>
 
-        {storyDoctorSuggestions && (
-          <div className="text-sm text-slate-700 bg-white border-2 border-purple-100 rounded-xl p-6">
-            <h4 className="font-bold text-purple-900 mb-3 flex items-center gap-2 text-base">
-              <Sparkles className="w-5 h-5 text-purple-600" />
-              Story Doctor's Notes
-            </h4>
-            <div
-              className="prose prose-sm max-w-none prose-p:my-2 prose-ul:my-2 prose-li:my-1 prose-headings:text-purple-900"
-              dangerouslySetInnerHTML={{ __html: storyDoctorSuggestions }}
-            />
-          </div>
-        )}
+        <div className="text-sm text-slate-700 bg-white border-2 border-purple-100 rounded-xl p-6">
+          {doctorError ? (
+            <p className="text-red-500 text-center py-12">{doctorError}</p>
+          ) : storyDoctorSuggestions ? (
+            <>
+              <h4 className="font-bold text-purple-900 mb-3 flex items-center gap-2 text-base">
+                <Sparkles className="w-5 h-5 text-purple-600" />
+                Story Doctor's Notes
+              </h4>
+              <div
+                className="prose prose-sm max-w-none prose-p:my-2 prose-ul:my-2 prose-li:my-1 prose-headings:text-purple-900"
+                dangerouslySetInnerHTML={{ __html: storyDoctorSuggestions }}
+              />
+            </>
+          ) : (
+            <div className="text-center text-slate-400 py-12">
+              <Sparkles className="w-12 h-12 mx-auto mb-3 opacity-30" />
+              <p>Click "Story Doctor" for AI suggestions</p>
+            </div>
+          )}
+        </div>
       </div>
     </section>
 
@@ -194,18 +238,29 @@ export const BlueprintView = ({ blueprint, storyImages, setView, startDrafting, 
           <section className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
               <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4">Cast</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {(Array.isArray(blueprint.characters) ? blueprint.characters : []).map((char, i) => {
-                      const parts = char.split(':');
-                      const name = parts[0].trim();
-                      const desc = parts.slice(1).join(':').trim();
-                      return (
-                          <div key={i} className="text-sm">
-                              <span className="block font-bold text-slate-800">{name}</span>
-                              <span className="text-slate-500">{desc}</span>
-                          </div>
-                      );
-                  })}
+                  {parsedCharacters.map((char, i) => (
+                      <div key={i} className="text-sm">
+                          <span className="block font-bold text-slate-800">{char.name}</span>
+                          <span className="text-slate-500">{char.desc}</span>
+                      </div>
+                  ))}
               </div>
+
+              {blueprint.character_visuals && Object.keys(blueprint.character_visuals).length > 0 && (
+                <div className="mt-6 pt-6 border-t border-slate-200">
+                  <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">
+                    Character Visuals
+                  </h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {Object.entries(blueprint.character_visuals).map(([name, desc]) => (
+                      <div key={name} className="text-xs bg-slate-50 p-3 rounded-lg border border-slate-100">
+                        <div className="font-bold text-slate-700 mb-1">{name}</div>
+                        <div className="text-slate-500">{desc}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
           </section>
       </div>
 

@@ -36,7 +36,8 @@ export const SetupView = ({ config, setConfig, generateBlueprint, onRollDice, us
     if (userEmail && listConfigPresets) {
       loadPresets();
     }
-  }, [userEmail]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userEmail, listConfigPresets]);
 
   const loadPresets = async () => {
     if (!listConfigPresets) return;
