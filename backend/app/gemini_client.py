@@ -402,6 +402,44 @@ async def _runpod_generate_text(
             return None
 
         output = data.get("output")
+        if isinstance(output, list) and output:
+            # Some RunPod vLLM workers return output as a list of records.
+            # Example observed:
+            # output: [{"choices": [{"tokens": ["..."]}], "usage": {...}}]
+            first = output[0]
+            if isinstance(first, str) and first.strip():
+                return first.strip()
+
+            if isinstance(first, dict):
+                choices = first.get("choices")
+                if isinstance(choices, list) and choices:
+                    c0 = choices[0] if isinstance(choices[0], dict) else {}
+
+                    # vLLM can return tokens as a list of strings.
+                    tokens = c0.get("tokens")
+                    if isinstance(tokens, list) and tokens:
+                        return "".join(str(t) for t in tokens).strip()
+
+                    # Some variants return plain text.
+                    text_val = c0.get("text")
+                    if isinstance(text_val, str) and text_val.strip():
+                        return text_val.strip()
+                    if isinstance(text_val, list) and text_val:
+                        return "".join(str(x) for x in text_val).strip()
+
+                    # OpenAI-compatible style.
+                    msg = c0.get("message")
+                    if isinstance(msg, dict):
+                        content = msg.get("content")
+                        if isinstance(content, str) and content.strip():
+                            return content.strip()
+
+                # Alternate keys
+                if isinstance(first.get("output"), str) and str(first.get("output")).strip():
+                    return str(first.get("output")).strip()
+                if isinstance(first.get("text"), str) and str(first.get("text")).strip():
+                    return str(first.get("text")).strip()
+
         if isinstance(output, dict):
             # Common vLLM worker format: output.text is list[str]
             text_val = output.get("text")
