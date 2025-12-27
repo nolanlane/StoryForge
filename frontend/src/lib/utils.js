@@ -10,8 +10,15 @@ export const safeJsonParse = (raw, fallback) => {
 };
 
 export const extractJSON = (text) => {
-  // Step 1: Clean markdown wrappers
+  // Step 1: Clean markdown wrappers and normalize problematic characters
   let clean = text.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
+  
+  // Normalize curly/smart quotes to straight quotes (common AI output issue)
+  clean = clean
+    .replace(/[\u2018\u2019\u201A\u201B]/g, "'")  // Curly single quotes -> straight
+    .replace(/[\u201C\u201D\u201E\u201F]/g, '"')  // Curly double quotes -> straight
+    .replace(/[\u2032]/g, "'")  // Prime -> apostrophe
+    .replace(/[\u2033]/g, '"'); // Double prime -> quote
   
   // Step 2: Find the JSON object boundaries
   const firstBrace = clean.indexOf('{');
@@ -38,6 +45,7 @@ export const extractJSON = (text) => {
   // Step 6: Repair the JSON
   jsonStr = repairJSON(jsonStr);
   
+  // Step 7: Try parsing the repaired JSON
   try {
     const parsed = JSON.parse(jsonStr);
     if (!parsed.chapters || !Array.isArray(parsed.chapters)) {
@@ -45,10 +53,68 @@ export const extractJSON = (text) => {
     }
     return parsed;
   } catch (e) {
-    console.error("JSON Parse Error after repair:", e.message);
-    console.error("Repaired JSON:", jsonStr.substring(0, 500));
+    console.log("Repair attempt 1 failed:", e.message);
+  }
+  
+  // Step 8: Last resort - aggressive cleanup and retry
+  jsonStr = aggressiveJSONCleanup(jsonStr);
+  
+  try {
+    const parsed = JSON.parse(jsonStr);
+    if (!parsed.chapters || !Array.isArray(parsed.chapters)) {
+      throw new Error("JSON missing 'chapters' array");
+    }
+    return parsed;
+  } catch (e) {
+    console.error("JSON Parse Error after all repairs:", e.message);
+    console.error("Final JSON attempt:", jsonStr.substring(0, 500));
     throw new Error("The Architect failed to draft a valid blueprint. Please try again.");
   }
+};
+
+// Aggressive cleanup for severely malformed JSON
+const aggressiveJSONCleanup = (json) => {
+  let str = json;
+  
+  // Only remove actual control characters (not valid Unicode like £)
+  str = str.replace(/[\x00-\x1F\x7F]/g, (match) => {
+    // Keep tabs and newlines, escape them
+    if (match === '\t') return '\\t';
+    if (match === '\n') return '\\n';
+    if (match === '\r') return '';
+    return '';
+  });
+  
+  // Fix common structural issues
+  str = str.replace(/,\s*,/g, ',');           // Double commas
+  str = str.replace(/,(\s*[}\]])/g, '$1');    // Trailing commas
+  
+  // Try to ensure we have complete structure by counting braces
+  let inString = false;
+  let escaped = false;
+  let braceCount = 0;
+  let bracketCount = 0;
+  
+  for (let i = 0; i < str.length; i++) {
+    const char = str[i];
+    if (escaped) { escaped = false; continue; }
+    if (char === '\\' && inString) { escaped = true; continue; }
+    if (char === '"') { inString = !inString; continue; }
+    if (inString) continue;
+    if (char === '{') braceCount++;
+    if (char === '}') braceCount--;
+    if (char === '[') bracketCount++;
+    if (char === ']') bracketCount--;
+  }
+  
+  // Close unclosed strings
+  if (inString) str += '"';
+  
+  // Add missing closing brackets/braces
+  while (bracketCount > 0) { str += ']'; bracketCount--; }
+  while (braceCount > 0) { str += '}'; braceCount--; }
+  
+  return str;
 };
 
 // Extract a JSON object starting at startIdx, handling nested braces properly
@@ -100,15 +166,19 @@ const extractJSONObject = (str, startIdx) => {
 const repairJSON = (json) => {
   let str = json;
   
-  // 1. Fix common string issues by rebuilding the JSON character by character
+  // Step 1: Escape control characters that break JSON
+  // Replace raw newlines/tabs inside what looks like string content
+  str = str.replace(/\r\n/g, '\\n').replace(/\r/g, '\\n');
+  
+  // Step 2: Track structure and find/fix issues
   let result = '';
   let inString = false;
   let escaped = false;
   let braceStack = [];
+  let lastStringStart = -1;
   
   for (let i = 0; i < str.length; i++) {
     const char = str[i];
-    const nextChar = str[i + 1] || '';
     
     if (escaped) {
       result += char;
@@ -123,17 +193,8 @@ const repairJSON = (json) => {
     }
     
     if (char === '"') {
-      // Check for unescaped quotes inside strings (common AI error)
-      if (inString) {
-        // Look ahead to see if this is a real string end or a mistake
-        const afterQuote = str.substring(i + 1).trimStart();
-        const isRealEnd = /^[,}\]:]/.test(afterQuote) || afterQuote.length === 0;
-        
-        if (!isRealEnd && !/^\s*"/.test(afterQuote)) {
-          // This quote is probably inside the string - escape it
-          result += '\\"';
-          continue;
-        }
+      if (!inString) {
+        lastStringStart = result.length;
       }
       inString = !inString;
       result += char;
@@ -141,8 +202,8 @@ const repairJSON = (json) => {
     }
     
     if (inString) {
-      // Handle problematic characters inside strings
-      if (char === '\n' || char === '\r') {
+      // Escape literal newlines inside strings
+      if (char === '\n') {
         result += '\\n';
         continue;
       }
@@ -169,31 +230,29 @@ const repairJSON = (json) => {
     }
   }
   
-  // 2. Close any unclosed strings
+  // Step 3: Close any unclosed strings
   if (inString) {
     result += '"';
   }
   
-  // 3. Remove trailing commas before closing braces/brackets
+  // Step 4: Remove trailing commas before closing braces/brackets
   result = result.replace(/,(\s*[}\]])/g, '$1');
   
-  // 4. Close any unclosed braces/brackets
+  // Step 5: Fix incomplete values at end (truncation)
+  // Handle: "key": "incomplete  -> "key": "incomplete"
+  // Handle: "key":  -> "key": null
+  result = result.replace(/"([^"]+)":\s*$/g, '"$1": null');
+  result = result.replace(/:\s*,/g, ': null,');
+  
+  // Step 6: Close any unclosed braces/brackets
   while (braceStack.length > 0) {
     const opener = braceStack.pop();
     result += opener === '{' ? '}' : ']';
   }
   
-  // 5. Fix incomplete key-value pairs at the end (common truncation issue)
-  // Pattern: "key": followed by end or closing brace without value
-  result = result.replace(/"([^"]+)":\s*([}\]])/g, '"$1": null$2');
-  result = result.replace(/"([^"]+)":\s*$/g, '"$1": null');
-  
-  // 6. Fix missing values after colons
-  result = result.replace(/:\s*,/g, ': null,');
-  result = result.replace(/:\s*}/g, ': null}');
-  
-  // 7. Fix double commas
+  // Step 7: Fix double commas and trailing commas
   result = result.replace(/,\s*,/g, ',');
+  result = result.replace(/,(\s*[}\]])/g, '$1');
   
   return result;
 };
