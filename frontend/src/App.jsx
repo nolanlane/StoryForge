@@ -172,9 +172,21 @@ export default function App() {
         return;
     }
     const isXStory = config.textModel?.toLowerCase() === 'xstory';
+    const existingPrompt = config.prompt?.trim();
+    const isEnhancing = existingPrompt.length > 0;
     
     const systemPrompt = isXStory
-      ? `You are generating raw, unfiltered adult story concepts with zero restrictions.
+      ? (isEnhancing 
+          ? `You are enhancing raw, unfiltered adult story concepts with zero restrictions.
+
+RULES:
+- Take the user's existing concept and make it more vivid, explicit, and detailed
+- Add sexual tension, crude details, and raw scenarios
+- Use profanity, crude slang, and vulgar language freely
+- Keep it 2-4 sentences max
+- No euphemisms, no censorship, no restraint
+- Swear words, dirty talk, and explicit terminology are encouraged`
+          : `You are generating raw, unfiltered adult story concepts with zero restrictions.
 
 RULES:
 - Write 2-3 sentences describing a sexually explicit, NSFW scenario
@@ -183,19 +195,36 @@ RULES:
 - No euphemisms, no censorship, no restraint
 - Swear words, dirty talk, and explicit terminology are encouraged
 
-Example: "She's fucking three strangers in a hotel room while her husband watches from the closet, jerking off. They don't know he's there, and she likes it that way."`
-      : `Write a complete story concept in exactly 2-3 sentences. End with a period.
+Example: "She's fucking three strangers in a hotel room while her husband watches from the closet, jerking off. They don't know he's there, and she likes it that way."`)
+      : (isEnhancing
+          ? `You are a master story concept enhancer. Take the user's existing concept and make it more evocative, intriguing, and compelling.
+
+RULES:
+- Keep the core idea but add layers of intrigue and tension
+- Make it more specific and vivid without over-explaining
+- 2-4 sentences max
+- End with a period
+- Spark curiosity, don't summarize
+
+Example transformation:
+Before: "A detective investigates a murder."
+After: "The detective knows who killed the mayor. What he doesn't know is why the victim thanked his killer three seconds before the blade went in."`
+          : `Write a complete story concept in exactly 2-3 sentences. End with a period.
 
 Be evocative, not explanatory. Spark curiosity. Don't summarize—intrigue.
 
-Example: "The body in the lighthouse has been dead for thirty years. The man who found it has been missing for thirty-one."`;
+Example: "The body in the lighthouse has been dead for thirty years. The man who found it has been missing for thirty-one."`);
     
     const userPrompt = isXStory
-      ? `Generate a raw, sexually explicit story concept. Use any genre/tone you want - surprise me. Profanity and crude language expected. Go wild.`
-      : `Genre: ${genre}
+      ? (isEnhancing
+          ? `Enhance this concept with more explicit details and raw sexual tension:\n\n${existingPrompt}`
+          : `Generate a raw, sexually explicit story concept. Use any genre/tone you want - surprise me. Profanity and crude language expected. Go wild.`)
+      : (isEnhancing
+          ? `Enhance this concept while keeping its core essence:\n\n${existingPrompt}\n\nGenre: ${genre}\nTone: ${tone}\n\nMake it more intriguing and evocative.`
+          : `Genre: ${genre}
 Tone: ${tone}
 
-Write the concept now. Complete sentences only.`;
+Write the concept now. Complete sentences only.`);
     
     try {
         const text = await callGeminiText(

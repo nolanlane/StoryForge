@@ -332,11 +332,11 @@ export const SetupView = ({ config, setConfig, generateBlueprint, onRollDice, us
               onClick={handleRollDice}
               disabled={isRolling}
               className="text-xs font-bold text-purple-600 hover:text-purple-700 flex items-center gap-1 hover:bg-purple-50 px-2 py-1 rounded transition-colors disabled:opacity-50 focus:ring-2 focus:ring-purple-500 outline-none"
-              title="Generate a random concept based on Genre/Tone"
-              aria-label="Generate Random Concept"
+              title={config.prompt?.trim() ? "Enhance existing concept with more detail and intrigue" : "Generate a random concept based on Genre/Tone"}
+              aria-label={config.prompt?.trim() ? "Enhance Concept" : "Generate Random Concept"}
             >
               {isRolling ? <Loader2 className="w-3 h-3 animate-spin" /> : <Dices className="w-3 h-3" />}
-              {isRolling ? "Generating..." : "Roll Dice"}
+              {isRolling ? "Generating..." : (config.prompt?.trim() ? "Enhance" : "Roll Dice")}
             </button>
           </div>
           <textarea
