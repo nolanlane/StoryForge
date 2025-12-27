@@ -257,7 +257,7 @@ async def _gemini_generate_text_with_model(
     generation_config: dict | None,
 ) -> str:
     cfg = {
-        "temperature": 0.85,
+        "temperature": 0.95,
         "maxOutputTokens": 16384,
         "topK": 64,
         "topP": 0.95,
@@ -354,7 +354,7 @@ async def _runpod_generate_text(
     # https://docs.runpod.io/serverless/vllm/vllm-requests
 
     cfg = {
-        "temperature": 0.85,
+        "temperature": 0.95,
         "top_p": 0.95,
         "top_k": 64,
         "max_tokens": 4096,

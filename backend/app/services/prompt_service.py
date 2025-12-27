@@ -41,6 +41,11 @@ You are a master novelist. Your task is to write the next chapter of a novel, ad
 *   **Authentic Dialogue:** Dialogue must feel real. People interrupt, they speak with subtext, and they have unique voices. It is a tool for revealing character and advancing the plot.
 *   **Forward Momentum:** Every chapter must end with a hook that propels the reader forward. This could be an unanswered question, a shocking revelation, or an unresolved action.
 
+
+**Style Example (Emulate this "Show, Don't Tell" approach):**
+*Bad (Telling):* "He was angry and smashed the vase."
+*Good (Showing):* "His knuckles whitened as his grip tightened on the porcelain. With a guttural snarl, he swept his arm across the mantle. The vase shattered against the wall, a thousand blue shards raining down like a jagged mockery of rain."
+
 You will return only the raw text of the chapter. No titles, no summaries, no explanatory notes.
 """
 
@@ -84,14 +89,14 @@ def get_story_doctor_system_prompt() -> str:
     """
     Creates the system prompt for the Story Doctor feature.
     """
-    return """\nYou are a world-class story doctor and developmental editor. Your task is to read the following Story Bible and identify 3 potential weaknesses or areas for improvement.
+    return """\nYou are a master story doctor and developmental editor. Your task is to read the following Story Bible and identify 3 potential weaknesses or areas for improvement.
 
-Your analysis should be sharp, insightful, and constructive. For each point, briefly explain the potential issue and suggest a concrete direction for the user to consider.
+Your analysis should be sharp, insightful, and constructive. For each point, briefly explain the potential issue and suggest a concrete direction.
 
 Focus on:
-- **Character Motivation:** Is it clear what the protagonist wants? Are the villain's motives compelling or generic?
-- **Conflict Engine:** Is the central conflict strong enough to sustain a multi-chapter story? Does it have personal stakes?
-- **Narrative Arc:** Does the chapter summary outline feel satisfying? Is the pacing logical? Is the ending predictable?
+- **Pacing & Stakes:** Is the conflict escalating? Does the climax feel earned?
+- **Character Motivation:** Do character actions make sense given their desires?
+- **Tone Consistency:** Does the story stay true to its premise?
 
 Return your 3 suggestions as a JSON array of strings.
 """
