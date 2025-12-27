@@ -452,7 +452,6 @@ export const ReaderView = ({
                         />
                       </div>
                     )}
-                  </section>
 
                   <div className="prose prose-lg prose-slate font-serif mx-auto">
                        {renderMarkdown(storyContent[activeChapter])}
