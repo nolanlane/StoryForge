@@ -3,6 +3,7 @@ import logging
 import asyncio
 import random
 import time
+from typing import Any
 
 from .config import settings
 
@@ -331,10 +332,11 @@ async def _runpod_generate_text(
     *,
     system_prompt: str,
     user_prompt: str,
+    json_mode: bool,
     timeout_s: float | None,
     generation_config: dict | None,
 ) -> str:
-    """Generate text using RunPod vLLM endpoint for XStory model."""
+    """Generate text using RunPod Serverless vLLM endpoint for XStory model."""
     if not settings.runpod_api_key:
         logger.error("[RunPod] API key is not set!")
         raise ValueError("STORYFORGE_RUNPOD_API_KEY is not configured")
@@ -343,46 +345,151 @@ async def _runpod_generate_text(
         float(timeout_s) if timeout_s else float(settings.runpod_timeout_s)
     )
     
-    # Combine system and user prompts for vLLM
-    combined_prompt = f"{system_prompt}\n\n{user_prompt}"
-    
+    # RunPod vLLM worker expects a standard Serverless envelope:
+    # {"input": {"messages": [...], "sampling_params": {...}}}
+    # https://docs.runpod.io/serverless/vllm/vllm-requests
+
+    cfg = {
+        "temperature": 0.85,
+        "top_p": 0.95,
+        "top_k": 64,
+        "max_tokens": 4096,
+    }
+    sanitized = _sanitize_generation_config(generation_config)
+    if "temperature" in sanitized:
+        cfg["temperature"] = sanitized["temperature"]
+    if "topP" in sanitized:
+        cfg["top_p"] = sanitized["topP"]
+    if "topK" in sanitized:
+        cfg["top_k"] = sanitized["topK"]
+    if "maxOutputTokens" in sanitized:
+        cfg["max_tokens"] = sanitized["maxOutputTokens"]
+
+    # Some vLLM deployments behave better with an explicit JSON-only reminder.
+    effective_system_prompt = system_prompt
+    if json_mode:
+        effective_system_prompt = (
+            f"{system_prompt}\n\nReturn valid JSON only. Do not include markdown fences."
+        )
+
     payload = {
         "input": {
-            "prompt": combined_prompt
+            "messages": [
+                {"role": "system", "content": effective_system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "sampling_params": cfg,
         }
     }
-    
-    url = f"https://api.runpod.ai/v2/{settings.runpod_endpoint_id}/run"
+
     headers = {
         "Content-Type": "application/json",
-        "Authorization": f"Bearer {settings.runpod_api_key}"
+        "Authorization": f"Bearer {settings.runpod_api_key}",
     }
+
+    runsync_url = f"https://api.runpod.ai/v2/{settings.runpod_endpoint_id}/runsync"
+    run_url = f"https://api.runpod.ai/v2/{settings.runpod_endpoint_id}/run"
     
     logger.info(
-        "[RunPod] Calling vLLM endpoint=%s timeout_s=%s",
+        "[RunPod] Calling vLLM endpoint=%s timeout_s=%s json_mode=%s",
         settings.runpod_endpoint_id,
         effective_timeout_s,
+        json_mode,
     )
-    
-    async with httpx.AsyncClient(timeout=effective_timeout_s) as client:
+
+    def _extract_runpod_text(data: Any) -> str | None:
+        if not isinstance(data, dict):
+            return None
+
+        output = data.get("output")
+        if isinstance(output, dict):
+            # Common vLLM worker format: output.text is list[str]
+            text_val = output.get("text")
+            if isinstance(text_val, list) and text_val:
+                return "".join(str(x) for x in text_val).strip()
+            if isinstance(text_val, str) and text_val.strip():
+                return text_val.strip()
+
+            # Alternate keys occasionally seen
+            alt = output.get("output")
+            if isinstance(alt, str) and alt.strip():
+                return alt.strip()
+            if isinstance(alt, list) and alt:
+                return "".join(str(x) for x in alt).strip()
+        elif isinstance(output, str) and output.strip():
+            return output.strip()
+
+        return None
+
+    async def _poll_status(*, client: httpx.AsyncClient, job_id: str) -> dict:
+        status_url = (
+            f"https://api.runpod.ai/v2/{settings.runpod_endpoint_id}/status/{job_id}"
+        )
+        start = time.monotonic()
+        # Small, bounded backoff; keep it responsive.
+        sleep_s = 0.5
+        while True:
+            elapsed = time.monotonic() - start
+            if elapsed > effective_timeout_s:
+                raise TimeoutError("RunPod job timed out")
+
+            res = await client.get(status_url, headers=headers)
+            res.raise_for_status()
+            data = res.json()
+
+            status = data.get("status") if isinstance(data, dict) else None
+            if status == "COMPLETED":
+                return data
+            if status == "FAILED":
+                raise ValueError("RunPod job failed")
+
+            await asyncio.sleep(sleep_s)
+            sleep_s = min(2.0, sleep_s * 1.3)
+
+    timeout = httpx.Timeout(float(effective_timeout_s))
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        # Prefer /runsync (single round-trip). If it returns only an id/status,
+        # fall back to polling /status.
         try:
-            response = await client.post(url, json=payload, headers=headers)
+            response = await client.post(runsync_url, json=payload, headers=headers)
             response.raise_for_status()
             data = response.json()
-            
-            # RunPod vLLM response format
-            if isinstance(data, dict):
-                output = data.get("output")
-                if isinstance(output, dict):
-                    text = output.get("text") or output.get("output")
-                    if text:
-                        return str(text).strip()
-                elif isinstance(output, str):
-                    return output.strip()
-            
-            logger.error("[RunPod] Unexpected response format: %s", data)
+
+            text = _extract_runpod_text(data)
+            if text:
+                return text
+
+            if isinstance(data, dict) and data.get("id"):
+                job_id = str(data.get("id"))
+                polled = await _poll_status(client=client, job_id=job_id)
+                text = _extract_runpod_text(polled)
+                if text:
+                    return text
+
+            logger.error("[RunPod] Unexpected runsync response format: %s", data)
             raise ValueError("Invalid response format from RunPod")
-            
+        except (httpx.HTTPStatusError, httpx.RequestError, TimeoutError) as e:
+            # One fallback attempt using /run + /status polling.
+            logger.warning(
+                "[RunPod] runsync failed (%s); retrying with /run + polling",
+                type(e).__name__,
+            )
+
+        try:
+            response = await client.post(run_url, json=payload, headers=headers)
+            response.raise_for_status()
+            data = response.json()
+            job_id = str((data or {}).get("id") or "")
+            if not job_id:
+                logger.error("[RunPod] No job id returned from /run: %s", data)
+                raise ValueError("RunPod /run did not return a job id")
+
+            polled = await _poll_status(client=client, job_id=job_id)
+            text = _extract_runpod_text(polled)
+            if not text:
+                logger.error("[RunPod] Unexpected /status response format: %s", polled)
+                raise ValueError("Invalid RunPod /status output")
+            return text
         except httpx.HTTPStatusError as e:
             logger.error(
                 "[RunPod] HTTP error status=%s message=%s",
@@ -391,7 +498,7 @@ async def _runpod_generate_text(
             )
             raise
         except httpx.RequestError as e:
-            logger.error("[RunPod] Network error: %s", str(e))
+            logger.error("[RunPod] Network error: %s", str(e)[:300])
             raise
 
 
@@ -412,6 +519,7 @@ async def gemini_generate_text(
         return await _runpod_generate_text(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
+            json_mode=json_mode,
             timeout_s=timeout_s,
             generation_config=generation_config,
         )

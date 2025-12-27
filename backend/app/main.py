@@ -340,9 +340,28 @@ async def ai_sequel(
 
 def _extract_json(text: str) -> str:
     clean = text.replace("```json", "").replace("```", "")
-    first = clean.find("{")
-    last = clean.rfind("}")
-    if first != -1 and last != -1:
+    first_obj = clean.find("{")
+    first_arr = clean.find("[")
+
+    if first_obj == -1 and first_arr == -1:
+        return clean
+
+    if first_obj == -1:
+        first = first_arr
+        last = clean.rfind("]")
+    elif first_arr == -1:
+        first = first_obj
+        last = clean.rfind("}")
+    else:
+        # Pick whichever appears first in the string.
+        if first_arr < first_obj:
+            first = first_arr
+            last = clean.rfind("]")
+        else:
+            first = first_obj
+            last = clean.rfind("}")
+
+    if first != -1 and last != -1 and last >= first:
         clean = clean[first : last + 1]
     return clean
 
