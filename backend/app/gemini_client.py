@@ -11,6 +11,9 @@ logger = logging.getLogger(__name__)
 
 RETRYABLE_STATUS_CODES = {408, 425, 429, 500, 502, 503, 504}
 
+# RunPod sits behind Cloudflare and can return 524 when a request holds open too long.
+RUNPOD_RETRYABLE_STATUS_CODES = RETRYABLE_STATUS_CODES | {524}
+
 TEXT_MODEL_ALLOWLIST: dict[str, str] = {
     "gemini-3-pro": "Gemini 3 Pro (preview) – reasoning, long context",
     "gemini-3-flash": "Gemini 3 Flash (preview) – speed-focused multimodal",
@@ -472,7 +475,14 @@ async def _runpod_generate_text(
                 raise TimeoutError("RunPod job timed out")
 
             res = await client.get(status_url, headers=headers)
-            res.raise_for_status()
+            if res.status_code >= 400:
+                # Treat transient gateway/timeouts as retryable during polling.
+                if res.status_code in RUNPOD_RETRYABLE_STATUS_CODES:
+                    await asyncio.sleep(sleep_s)
+                    sleep_s = min(2.0, sleep_s * 1.3)
+                    continue
+                res.raise_for_status()
+
             data = res.json()
 
             status = data.get("status") if isinstance(data, dict) else None
@@ -486,40 +496,58 @@ async def _runpod_generate_text(
 
     timeout = httpx.Timeout(float(effective_timeout_s))
     async with httpx.AsyncClient(timeout=timeout) as client:
-        # Prefer /runsync (single round-trip). If it returns only an id/status,
-        # fall back to polling /status.
-        try:
-            response = await client.post(runsync_url, json=payload, headers=headers)
-            response.raise_for_status()
-            data = response.json()
+        # Avoid /runsync for long-running jobs (notably JSON blueprint generation)
+        # because Cloudflare can return 524 if the request stays open too long.
+        use_runsync = not json_mode
 
-            text = _extract_runpod_text(data)
-            if text:
-                return text
+        if use_runsync:
+            # Prefer /runsync (single round-trip). If it returns only an id/status,
+            # fall back to polling /status.
+            try:
+                response = await client.post(runsync_url, json=payload, headers=headers)
+                response.raise_for_status()
+                data = response.json()
 
-            if isinstance(data, dict) and data.get("id"):
-                job_id = str(data.get("id"))
-                polled = await _poll_status(client=client, job_id=job_id)
-                text = _extract_runpod_text(polled)
+                text = _extract_runpod_text(data)
                 if text:
                     return text
 
-            logger.error("[RunPod] Unexpected runsync response format: %s", data)
-            raise ValueError("Invalid response format from RunPod")
-        except (httpx.HTTPStatusError, httpx.RequestError, TimeoutError) as e:
-            # One fallback attempt using /run + /status polling.
-            logger.warning(
-                "[RunPod] runsync failed (%s); retrying with /run + polling",
-                type(e).__name__,
-            )
+                if isinstance(data, dict) and data.get("id"):
+                    job_id = str(data.get("id"))
+                    polled = await _poll_status(client=client, job_id=job_id)
+                    text = _extract_runpod_text(polled)
+                    if text:
+                        return text
+
+                logger.error("[RunPod] Unexpected runsync response format: %s", data)
+                raise ValueError("Invalid response format from RunPod")
+            except (httpx.HTTPStatusError, httpx.RequestError, TimeoutError) as e:
+                logger.warning(
+                    "[RunPod] runsync failed (%s); retrying with /run + polling",
+                    type(e).__name__,
+                )
 
         try:
-            response = await client.post(run_url, json=payload, headers=headers)
-            response.raise_for_status()
-            data = response.json()
-            job_id = str((data or {}).get("id") or "")
+            # Submit async job with /run, then poll /status until completion.
+            # Retry submission once if the gateway returns transient 5xx/524.
+            job_id: str | None = None
+            for attempt in range(2):
+                response = await client.post(run_url, json=payload, headers=headers)
+                if (
+                    response.status_code >= 400
+                    and response.status_code in RUNPOD_RETRYABLE_STATUS_CODES
+                    and attempt == 0
+                ):
+                    await asyncio.sleep(0.8)
+                    continue
+
+                response.raise_for_status()
+                data = response.json()
+                job_id = str((data or {}).get("id") or "")
+                break
+
             if not job_id:
-                logger.error("[RunPod] No job id returned from /run: %s", data)
+                logger.error("[RunPod] No job id returned from /run")
                 raise ValueError("RunPod /run did not return a job id")
 
             polled = await _poll_status(client=client, job_id=job_id)
