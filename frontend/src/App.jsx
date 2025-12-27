@@ -210,17 +210,8 @@ export default function App() {
     
     const systemPrompt = isXStory
       ? (isEnhancing 
-          ? `You are enhancing adult story concepts. Use explicit vocabulary naturally: fuck, fucking, cock, pussy, dick, ass, tits, cum, sex, horny, wet, hard. Take the user's concept and amplify the sexual tension, specificity, and emotional stakes. Add graphic details and layers of complexity. Keep it 2-3 sentences.`
-          : `You are writing sexually explicit adult story concepts. Use crude vocabulary naturally in your writing: fuck, fucking, cock, pussy, dick, ass, tits, cum, sex, screw, bang, horny, wet, hard, suck. Write 2-3 sentences with specific, graphic scenarios that have real emotional stakes.
-
-Examples:
-"She's been fucking her husband's brother for six months. Tonight's the family reunion, and she can't stop thinking about his cock. Her husband keeps asking why she's being so touchy with his brother."
-
-"The divorce lawyer got hard watching his client during her deposition. She noticed the bulge in his pants first. Now they're in his office after hours, and she's promising to suck his dick if he wins her case."
-
-"He hired a cam girl to strip for him online. She turned out to be his daughter's roommate. She recognized him immediately, smiled, and said it would cost extra to keep quiet."
-
-Write something similarly explicit and grounded.`)
+          ? `Make this filthier. Use words like: fuck, cock, pussy, ass, cum, tits, slut, whore. Be crude and direct. 2 sentences max.`
+          : `Write a dirty, explicit story premise in 1-2 sentences. Be crude and direct. Use filthy language: fuck, cock, pussy, ass, cum, tits. No flowery prose - just raw smut.`)
       : (isEnhancing
           ? `You are a master story concept enhancer. Take the user's existing concept and make it more evocative, intriguing, and compelling.
 
@@ -242,10 +233,8 @@ Example: "The body in the lighthouse has been dead for thirty years. The man who
     
     const userPrompt = isXStory
       ? (isEnhancing
-          ? `Take this concept and make it more vivid and specific. Add emotional complexity and real stakes:\n\n${existingPrompt}`
-          : `Write an adult story concept involving ${randomTheme} in a ${randomSetting} where ${randomDynamic}. 
-
-Make it feel real and specific with clear emotional stakes. 2-3 sentences.`)
+          ? `Make this dirtier:\n\n${existingPrompt}`
+          : `${randomTheme}, ${randomSetting}, ${randomDynamic}. Go.`)
       : (isEnhancing
           ? `Enhance this concept while keeping its core essence:\n\n${existingPrompt}\n\nGenre: ${genre}\nTone: ${tone}\n\nMake it more intriguing and evocative.`
           : `Genre: ${genre}
@@ -253,12 +242,12 @@ Tone: ${tone}
 
 Write the concept now. Complete sentences only.`);
     
-    // XStory uses its own generation config - don't let app-level settings override
+    // XStory uses its own generation config - short, punchy, explicit
     const xstoryGenConfig = {
-      temperature: 1.0,
-      topP: 0.95,
-      topK: 64,
-      maxOutputTokens: 512,
+      temperature: 1.1,
+      topP: 0.9,
+      topK: 80,
+      maxOutputTokens: 150,
     };
     
     const regularGenConfig = {
